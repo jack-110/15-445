@@ -85,7 +85,7 @@ TEST(TrieTest, PutGetOnePath) {
   ASSERT_EQ(*trie.Get<uint32_t>("111"), 111);
   ASSERT_EQ(*trie.Get<uint32_t>("1111"), 1111);
 }
-/*
+
 TEST(TrieTest, BasicRemoveTest1) {
   auto trie = Trie();
   // Put something
@@ -284,5 +284,4 @@ TEST(TrieTest, PointerStability) {
   auto *ptr_after = trie.Get<std::string>("test");
   ASSERT_EQ(reinterpret_cast<uint64_t>(ptr_before), reinterpret_cast<uint64_t>(ptr_after));
 }
-*/
 }  // namespace bustub

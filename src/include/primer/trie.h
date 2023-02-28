@@ -60,9 +60,11 @@ class TrieNode {
   // Note: if you want to convert `unique_ptr` into `shared_ptr`, you can use `std::shared_ptr<T>(std::move(ptr))`.
   virtual auto Clone() const -> std::unique_ptr<TrieNode> { return std::make_unique<TrieNode>(children_); }
 
-  bool HasChildren(char key) const { return children_.count(key) != 0; }
+  auto HasChildren(char key) const -> bool { return children_.count(key) != 0; }
 
-  std::shared_ptr<const TrieNode> GetChild(char key) const {
+  auto HasChild() const -> bool { return !children_.empty(); }
+
+  auto GetChild(char key) const -> std::shared_ptr<const TrieNode> {
     auto iterator = children_.find(key);
     if (iterator != children_.end()) {
       return iterator->second;
@@ -70,7 +72,7 @@ class TrieNode {
     return nullptr;
   }
 
-  void RemoveChild(char key) {
+  auto RemoveChild(char key) -> void {
     if (HasChildren(key)) {
       children_.erase(key);
     }
@@ -129,7 +131,9 @@ class Trie {
       -> std::shared_ptr<TrieNode>;
 
   template <class T>
-  void Insert(const std::shared_ptr<TrieNode> &root, std::string_view key, T value) const;
+  auto Insert(const std::shared_ptr<TrieNode> &root, std::string_view key, T value) const -> void;
+
+  auto Remove(const std::shared_ptr<const TrieNode> &root, std::string_view key) const -> std::shared_ptr<const TrieNode>;
 
  public:
   // Create an empty trie.
