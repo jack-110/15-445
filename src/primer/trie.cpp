@@ -83,16 +83,17 @@ auto Trie::Insert(const std::shared_ptr<TrieNode> &root, std::string_view key, T
   Insert(node, key.substr(1), std::move(value));
   (root->children_).emplace(key.at(0), node);
 }
-//how to deal with the key when it not exist in trie.
+// how to deal with the key when it not exist in trie.
 auto Trie::Remove(std::string_view key) const -> Trie {
   // You should walk through the trie and remove nodes if necessary. If the node doesn't contain a value any more,
   // you should convert it to `TrieNode`. If a node doesn't have children any more, you should remove it.
   Trie trie = Trie();
   trie.root_ = Remove(root_, key);
- return trie;
+  return trie;
 }
 
-auto Trie::Remove(const std::shared_ptr<const TrieNode> &root, std::string_view key) const -> std::shared_ptr<const TrieNode> {
+auto Trie::Remove(const std::shared_ptr<const TrieNode> &root, std::string_view key) const
+    -> std::shared_ptr<const TrieNode> {
   auto copy_node = root->Clone();
 
   char key_char = key.at(0);
@@ -103,7 +104,7 @@ auto Trie::Remove(const std::shared_ptr<const TrieNode> &root, std::string_view 
     } else if (child_node->HasChild() && child_node->is_value_node_) {
       auto node_without_value = std::make_shared<const TrieNode>(child_node->children_);
       copy_node->RemoveChild(key_char);
-      copy_node->children_.emplace(key_char,node_without_value);
+      copy_node->children_.emplace(key_char, node_without_value);
     }
     return copy_node;
   }

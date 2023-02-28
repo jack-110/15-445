@@ -133,7 +133,8 @@ class Trie {
   template <class T>
   auto Insert(const std::shared_ptr<TrieNode> &root, std::string_view key, T value) const -> void;
 
-  auto Remove(const std::shared_ptr<const TrieNode> &root, std::string_view key) const -> std::shared_ptr<const TrieNode>;
+  auto Remove(const std::shared_ptr<const TrieNode> &root, std::string_view key) const
+      -> std::shared_ptr<const TrieNode>;
 
  public:
   // Create an empty trie.
