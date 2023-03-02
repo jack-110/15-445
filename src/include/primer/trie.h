@@ -60,6 +60,24 @@ class TrieNode {
   // Note: if you want to convert `unique_ptr` into `shared_ptr`, you can use `std::shared_ptr<T>(std::move(ptr))`.
   virtual auto Clone() const -> std::unique_ptr<TrieNode> { return std::make_unique<TrieNode>(children_); }
 
+  auto HasChildren(char key) const -> bool { return children_.count(key) != 0; }
+
+  auto HasChild() const -> bool { return !children_.empty(); }
+
+  auto GetChild(char key) const -> std::shared_ptr<const TrieNode> {
+    auto iterator = children_.find(key);
+    if (iterator != children_.end()) {
+      return iterator->second;
+    }
+    return nullptr;
+  }
+
+  auto RemoveChild(char key) -> void {
+    if (HasChildren(key)) {
+      children_.erase(key);
+    }
+  }
+
   // A map of children, where the key is the next character in the key, and the value is the next TrieNode.
   std::map<char, std::shared_ptr<const TrieNode>> children_;
 
@@ -100,10 +118,23 @@ class TrieNodeWithValue : public TrieNode {
 class Trie {
  private:
   // The root of the trie.
-  std::shared_ptr<const TrieNode> root_{nullptr};
+  std::shared_ptr<const TrieNode> root_ = std::make_shared<const TrieNode>();
 
   // Create a new trie with the given root.
   explicit Trie(std::shared_ptr<const TrieNode> root) : root_(std::move(root)) {}
+
+  template <class T>
+  auto Get(const std::shared_ptr<const TrieNode> &root, std::string_view key) const -> const T *;
+
+  template <class T>
+  auto Put(const std::shared_ptr<const TrieNode> &root, std::string_view key, T value) const
+      -> std::shared_ptr<TrieNode>;
+
+  template <class T>
+  auto Insert(const std::shared_ptr<TrieNode> &root, std::string_view key, T value) const -> void;
+
+  auto Remove(const std::shared_ptr<const TrieNode> &root, std::string_view key) const
+      -> std::shared_ptr<const TrieNode>;
 
  public:
   // Create an empty trie.
@@ -124,6 +155,8 @@ class Trie {
   // Remove the key from the trie. If the key does not exist, return the original trie.
   // Otherwise, returns the new trie.
   auto Remove(std::string_view key) const -> Trie;
+
+  auto GetRoot() const -> std::shared_ptr<const TrieNode>;
 };
 
 }  // namespace bustub
