@@ -27,34 +27,27 @@ enum class AccessType { Unknown = 0, Get, Scan };
 
 class LRUKNode {
  public:
-  void UpdateHistory(size_t timestamp) {
-    k_++;
-    history_.push_back(timestamp);
-  }
-
-  void IncreSize() { k_++; }
-
-  auto GetBackwardDistance(size_t k, size_t now) const -> size_t {
-    if (k_ < k) {
-      return std::numeric_limits<size_t>::max();
-    }
-
-    auto iterator = history_.begin();
-    std::advance(iterator, k);
-    return now - *iterator;
-  }
-
-  void CleanUpHistory() { history_.erase(history_.begin(), history_.end()); }
-
-  auto GetLastAccessTime() const -> size_t { return history_.back(); }
+  auto IsEvictable() -> bool { return is_evictable_; }
 
   void SetEvictable(bool evictable) { is_evictable_ = evictable; }
 
-  auto IsEvictable() -> bool { return is_evictable_; }
+  auto GetEariestAccessTime() const -> size_t { return history_.front(); }
 
-  LRUKNode(size_t timestamp, frame_id_t fid) {
+  void UpdateHistory(size_t timestamp) { history_.push_back(timestamp); }
+
+  auto GetBackwardDistance(size_t now) const -> size_t {
+    if (k_ > history_.size()) {
+      return std::numeric_limits<size_t>::max();
+    }
+
+    auto iterator = history_.end();
+    auto k_th = std::prev(iterator, k_);
+    return now - *k_th + 1;  // avoid zero, because the min vlaue in Evict method is zero
+  }
+
+  LRUKNode(size_t k, frame_id_t fid) {
+    k_ = k;
     fid_ = fid;
-    UpdateHistory(timestamp);
   }
 
  private:
@@ -186,7 +179,7 @@ class LRUKReplacer {
   size_t curr_size_{0};
   size_t replacer_size_;
   size_t k_;
-  [[maybe_unused]] std::mutex latch_;
+  std::mutex latch_;
 };
 
 }  // namespace bustub
