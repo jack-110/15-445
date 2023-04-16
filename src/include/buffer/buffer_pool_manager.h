@@ -207,6 +207,18 @@ class BufferPoolManager {
     // This is a no-nop right now without a more complex data structure to track deallocated pages
   }
 
+  auto HasEvictableFrame(frame_id_t &frame_id) -> bool;
+
+  void NewBufferPage(frame_id_t &frame_id, page_id_t &page_id) {
+    pages_[frame_id].pin_count_++;
+    pages_[frame_id].page_id_ = page_id;
+    pages_[frame_id].is_dirty_ = false;
+    page_table_.emplace(page_id, frame_id);
+
+    replacer_->RecordAccess(frame_id);
+    replacer_->SetEvictable(frame_id, false);
+  }
+
   // TODO(student): You may add additional private members and helper functions
 };
 }  // namespace bustub
