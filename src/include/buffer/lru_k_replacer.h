@@ -26,14 +26,38 @@ namespace bustub {
 enum class AccessType { Unknown = 0, Get, Scan };
 
 class LRUKNode {
+ public:
+  auto IsEvictable() -> bool { return is_evictable_; }
+
+  void SetEvictable(bool evictable) { is_evictable_ = evictable; }
+
+  auto GetEariestAccessTime() const -> size_t { return history_.front(); }
+
+  void UpdateHistory(size_t timestamp) { history_.push_back(timestamp); }
+
+  auto GetBackwardDistance(size_t now) const -> size_t {
+    if (k_ > history_.size()) {
+      return std::numeric_limits<size_t>::max();
+    }
+
+    auto iterator = history_.end();
+    auto k_th = std::prev(iterator, k_);
+    return now - *k_th + 1;  // avoid zero, because the min vlaue in Evict method is zero
+  }
+
+  LRUKNode(size_t k, frame_id_t fid) {
+    k_ = k;
+    fid_ = fid;
+  }
+
  private:
   /** History of last seen K timestamps of this page. Least recent timestamp stored in front. */
   // Remove maybe_unused if you start using them. Feel free to change the member variables as you want.
 
-  [[maybe_unused]] std::list<size_t> history_;
-  [[maybe_unused]] size_t k_;
-  [[maybe_unused]] frame_id_t fid_;
-  [[maybe_unused]] bool is_evictable_{false};
+  std::list<size_t> history_;
+  size_t k_{0};
+  frame_id_t fid_;
+  bool is_evictable_{false};
 };
 
 /**
@@ -150,12 +174,12 @@ class LRUKReplacer {
  private:
   // TODO(student): implement me! You can replace these member variables as you like.
   // Remove maybe_unused if you start using them.
-  [[maybe_unused]] std::unordered_map<frame_id_t, LRUKNode> node_store_;
-  [[maybe_unused]] size_t current_timestamp_{0};
-  [[maybe_unused]] size_t curr_size_{0};
-  [[maybe_unused]] size_t replacer_size_;
-  [[maybe_unused]] size_t k_;
-  [[maybe_unused]] std::mutex latch_;
+  std::unordered_map<frame_id_t, LRUKNode> node_store_;
+  size_t current_timestamp_{0};
+  size_t curr_size_{0};
+  size_t replacer_size_;
+  size_t k_;
+  std::mutex latch_;
 };
 
 }  // namespace bustub
