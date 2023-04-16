@@ -207,7 +207,7 @@ class BufferPoolManager {
     // This is a no-nop right now without a more complex data structure to track deallocated pages
   }
 
-  auto HasEvictableFrame(frame_id_t &frame_id) -> bool;
+  auto HasReplacementFrame(frame_id_t &frame_id) -> bool;
 
   void NewBufferPage(frame_id_t &frame_id, page_id_t &page_id) {
     pages_[frame_id].pin_count_++;

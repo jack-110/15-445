@@ -36,16 +36,15 @@ BufferPoolManager::~BufferPoolManager() { delete[] pages_; }
 auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
   std::lock_guard<std::mutex> lock(latch_);
   int frame_id;
-  if (HasEvictableFrame(frame_id)) {
+  if (HasReplacementFrame(frame_id)) {
     *page_id = AllocatePage();
     NewBufferPage(frame_id, *page_id);
     return &pages_[frame_id];
   }
-
   return nullptr;
 }
 
-auto BufferPoolManager::HasEvictableFrame(frame_id_t &frame_id) -> bool {
+auto BufferPoolManager::HasReplacementFrame(frame_id_t &frame_id) -> bool {
   if (!free_list_.empty()) {
     // pick from free_list_ first
     frame_id = free_list_.front();
@@ -64,7 +63,6 @@ auto BufferPoolManager::HasEvictableFrame(frame_id_t &frame_id) -> bool {
     pages_[frame_id].page_id_ = INVALID_PAGE_ID;
     return true;
   }
-
   return false;
 }
 
@@ -79,7 +77,7 @@ auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType
   }
 
   frame_id_t frame_id;
-  if (HasEvictableFrame(frame_id)) {
+  if (HasReplacementFrame(frame_id)) {
     NewBufferPage(frame_id, page_id);
     disk_manager_->ReadPage(page_id, pages_[frame_id].GetData());
     return &pages_[frame_id];
@@ -104,7 +102,6 @@ auto BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty, [[maybe_unus
   if (pages_[frame_id].pin_count_ == 0) {
     replacer_->SetEvictable(frame_id, true);
   }
-
   return true;
 }
 
@@ -150,7 +147,6 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   pages_[frame_id].page_id_ = INVALID_PAGE_ID;
 
   DeallocatePage(page_id);
-
   return true;
 }
 

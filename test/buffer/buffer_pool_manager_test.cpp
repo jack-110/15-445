@@ -22,7 +22,7 @@ namespace bustub {
 
 // NOLINTNEXTLINE
 // Check whether pages containing terminal characters can be recovered
-TEST(BufferPoolManagerTest, DISABLED_BinaryDataTest) {
+TEST(BufferPoolManagerTest, BinaryDataTest) {
   const std::string db_name = "test.db";
   const size_t buffer_pool_size = 10;
   const size_t k = 5;
@@ -88,7 +88,7 @@ TEST(BufferPoolManagerTest, DISABLED_BinaryDataTest) {
 }
 
 // NOLINTNEXTLINE
-TEST(BufferPoolManagerTest, DISABLED_SampleTest) {
+TEST(BufferPoolManagerTest, SampleTest) {
   const std::string db_name = "test.db";
   const size_t buffer_pool_size = 10;
   const size_t k = 5;
@@ -110,6 +110,7 @@ TEST(BufferPoolManagerTest, DISABLED_SampleTest) {
   // Scenario: We should be able to create new pages until we fill up the buffer pool.
   for (size_t i = 1; i < buffer_pool_size; ++i) {
     EXPECT_NE(nullptr, bpm->NewPage(&page_id_temp));
+    EXPECT_EQ(i, page_id_temp);
   }
 
   // Scenario: Once the buffer pool is full, we should not be able to create any new pages.
@@ -122,12 +123,19 @@ TEST(BufferPoolManagerTest, DISABLED_SampleTest) {
   for (int i = 0; i < 5; ++i) {
     EXPECT_EQ(true, bpm->UnpinPage(i, true));
   }
+
+  // the buffer pool is filled up now, buffer: [10, 11, 12, 13, 4, 5, 6, 7, 8, 9],
+  // all pages are pinned except page 4.
   for (int i = 0; i < 4; ++i) {
     EXPECT_NE(nullptr, bpm->NewPage(&page_id_temp));
+    EXPECT_EQ(i + buffer_pool_size, page_id_temp);
   }
 
   // Scenario: We should be able to fetch the data we wrote a while ago.
+  // page 4 will be evicted and be replaced with page 0
+  // buffer: [10, 11, 12, 13, 0, 5, 6, 7, 8, 9]
   page0 = bpm->FetchPage(0);
+  EXPECT_EQ(0, page0->GetPageId());
   EXPECT_EQ(0, strcmp(page0->GetData(), "Hello"));
 
   // Scenario: If we unpin page 0 and then make a new page, all the buffer pages should
@@ -144,4 +152,159 @@ TEST(BufferPoolManagerTest, DISABLED_SampleTest) {
   delete disk_manager;
 }
 
+// NewPage test cases
+TEST(BufferPoolManagerTest, NewPageTest) {
+  const std::string db_name = "test.db";
+  const size_t buffer_pool_size = 10;
+  const size_t k = 5;
+
+  auto *disk_manager = new DiskManager(db_name);
+  auto *bpm = new BufferPoolManager(buffer_pool_size, disk_manager, k);
+
+  page_id_t page_id_temp;
+
+  // case one: the buffer pool is empty
+  bpm->NewPage(&page_id_temp);
+  EXPECT_EQ(0, page_id_temp);
+
+  // case two: buffer pool is filled up, so all the pages are in use
+  for (size_t i = 1; i < buffer_pool_size; ++i) {
+    bpm->NewPage(&page_id_temp);
+    EXPECT_EQ(i, page_id_temp);
+  }
+
+  EXPECT_EQ(nullptr, bpm->NewPage(&page_id_temp));
+
+  // case three: some buffer pool pages are unpinned and not dirty
+  //  unpinned [0], pinned [1, 2, 3, 4, 5, 6, 7, 8, 9]
+  bpm->UnpinPage(0, false);
+
+  // buffer pool is filled up, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  auto *page10 = bpm->NewPage(&page_id_temp);
+  EXPECT_EQ(10, page_id_temp);
+
+  // cast four: page 10 is evictable and dirty
+  snprintf(page10->GetData(), BUSTUB_PAGE_SIZE, "Hello");
+  EXPECT_EQ(0, strcmp(page10->GetData(), "Hello"));
+  EXPECT_TRUE(bpm->UnpinPage(10, true));
+
+  bpm->NewPage(&page_id_temp);
+  EXPECT_EQ(11, page_id_temp);
+
+  // fetch page failed, buffer pool is filled up.
+  EXPECT_EQ(nullptr, bpm->FetchPage(10));
+
+  // Shutdown the disk manager and remove the temporary file we created.
+  disk_manager->ShutDown();
+  remove("test.db");
+
+  delete bpm;
+  delete disk_manager;
+}
+
+TEST(BufferPoolManagerTest, UnpinPageTest) {
+  const std::string db_name = "test.db";
+  const size_t buffer_pool_size = 10;
+  const size_t k = 5;
+
+  auto *disk_manager = new DiskManager(db_name);
+  auto *bpm = new BufferPoolManager(buffer_pool_size, disk_manager, k);
+
+  page_id_t page_id_temp;
+
+  // create full buffer pool [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  for (size_t i = 0; i < buffer_pool_size; ++i) {
+    bpm->NewPage(&page_id_temp);
+    EXPECT_EQ(i, page_id_temp);
+  }
+
+  // page id not in the buffer pool
+  EXPECT_FALSE(bpm->UnpinPage(10, false));
+
+  // the pin count reach 0
+  EXPECT_TRUE(bpm->UnpinPage(0, false));
+  EXPECT_FALSE(bpm->UnpinPage(0, false));
+
+  // Shutdown the disk manager and remove the temporary file we created.
+  disk_manager->ShutDown();
+  remove("test.db");
+
+  delete bpm;
+  delete disk_manager;
+}
+
+TEST(BufferPoolManagerTest, FetchPageTest) {
+  const std::string db_name = "test.db";
+  const size_t buffer_pool_size = 10;
+  const size_t k = 5;
+
+  auto *disk_manager = new DiskManager(db_name);
+  auto *bpm = new BufferPoolManager(buffer_pool_size, disk_manager, k);
+
+  page_id_t page_id_temp;
+
+  // create full buffer pool [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  for (size_t i = 0; i < buffer_pool_size; ++i) {
+    bpm->NewPage(&page_id_temp);
+    EXPECT_EQ(i, page_id_temp);
+  }
+
+  bpm->UnpinPage(0, false);
+
+  // disk [0], buffer pool [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  bpm->NewPage(&page_id_temp);
+
+  // case one: buffer pool is filled up, and all pages are pinned
+  EXPECT_EQ(nullptr, bpm->FetchPage(0));
+
+  // case two: buffer pool has evictabel frames, replace old page
+  bpm->UnpinPage(1, false);
+  auto *page0 = bpm->FetchPage(0);
+  EXPECT_EQ(0, page0->GetPageId());
+
+  // Shutdown the disk manager and remove the temporary file we created.
+  disk_manager->ShutDown();
+  remove("test.db");
+
+  delete bpm;
+  delete disk_manager;
+}
+
+TEST(BufferPoolManagerTest, DeletePageTest) {
+  const std::string db_name = "test.db";
+  const size_t buffer_pool_size = 5;
+  const size_t k = 5;
+
+  auto *disk_manager = new DiskManager(db_name);
+  auto *bpm = new BufferPoolManager(buffer_pool_size, disk_manager, k);
+
+  // create full buffer pool [0, 1, 2, 3, 4]
+  page_id_t page_id_temp;
+  for (size_t i = 0; i < buffer_pool_size; ++i) {
+    bpm->NewPage(&page_id_temp);
+    EXPECT_EQ(i, page_id_temp);
+  }
+
+  // case: page id not in the buffer pool
+  EXPECT_TRUE(bpm->DeletePage(5));
+
+  // case: page0 is pinned
+  EXPECT_FALSE(bpm->DeletePage(0));
+
+  // case: page0 is unpinned
+  bpm->UnpinPage(0, false);
+  EXPECT_TRUE(bpm->DeletePage(0));
+
+  // case: when the page0 is deleted
+  auto *page0 = bpm->FetchPage(0);
+  EXPECT_FALSE(page0->IsDirty());
+  EXPECT_EQ(1, page0->GetPinCount());
+
+  // Shutdown the disk manager and remove the temporary file we created.
+  disk_manager->ShutDown();
+  remove("test.db");
+
+  delete bpm;
+  delete disk_manager;
+}
 }  // namespace bustub
