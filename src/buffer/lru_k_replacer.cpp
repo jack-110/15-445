@@ -21,31 +21,30 @@ auto LRUKReplacer::Evict(frame_id_t *frame_id) -> bool {
   std::lock_guard<std::mutex> lock(latch_);
 
   // locate the frame
-  frame_id_t frame_to_evict = -1;
+  frame_id_t evict_id = -1;
   auto max = std::numeric_limits<size_t>::min();
   for (auto iterator = node_store_.begin(); iterator != node_store_.end(); ++iterator) {
-    auto node = iterator->second;
-
+    LRUKNode &node = iterator->second;
     if (!node.IsEvictable()) {
       continue;
     }
 
-    auto k_distance = node.GetBackwardDistance(current_timestamp_);
-    if (k_distance > max) {
-      max = k_distance;
-      frame_to_evict = iterator->first;
-    } else if (k_distance == max) {
-      if (node.GetEariestAccessTime() < node_store_.at(frame_to_evict).GetEariestAccessTime()) {
-        frame_to_evict = iterator->first;
+    auto distance = node.GetDistance(current_timestamp_);
+    if (distance > max) {
+      max = distance;
+      evict_id = iterator->first;
+    } else if (distance == max) {
+      if (node.GetEariestAccessTime() < node_store_.at(evict_id).GetEariestAccessTime()) {
+        evict_id = iterator->first;
       }
     }
   }
 
   // evict the frame
-  if (frame_to_evict != -1) {
-    *frame_id = frame_to_evict;
+  if (evict_id != -1) {
     curr_size_--;
-    node_store_.erase(frame_to_evict);
+    *frame_id = evict_id;
+    node_store_.erase(evict_id);
     return true;
   }
 

@@ -36,8 +36,8 @@ BufferPoolManager::~BufferPoolManager() { delete[] pages_; }
 auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
   std::lock_guard<std::mutex> lock(latch_);
   int frame_id;
+  *page_id = AllocatePage();
   if (HasReplacementFrame(frame_id)) {
-    *page_id = AllocatePage();
     NewBufferPage(frame_id, *page_id);
     return &pages_[frame_id];
   }
@@ -110,7 +110,6 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
     return false;
   }
   disk_manager_->WritePage(page_id, pages_[page_table_[page_id]].GetData());
-  pages_[page_table_[page_id]].is_dirty_ = false;
   return true;
 }
 

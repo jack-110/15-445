@@ -35,7 +35,7 @@ class LRUKNode {
 
   void UpdateHistory(size_t timestamp) { history_.push_back(timestamp); }
 
-  auto GetBackwardDistance(size_t now) const -> size_t {
+  auto GetDistance(size_t now) const -> size_t {
     if (k_ > history_.size()) {
       return std::numeric_limits<size_t>::max();
     }
