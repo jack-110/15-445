@@ -36,49 +36,25 @@ BufferPoolManager::~BufferPoolManager() { delete[] pages_; }
 auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
   std::lock_guard<std::mutex> lock(latch_);
   int frame_id;
-  *page_id = AllocatePage();
-  if (HasReplacementFrame(frame_id)) {
-    NewBufferPage(frame_id, *page_id);
+  if (PickFreePage(frame_id)) {
+    *page_id = AllocatePage();
+    InitPage(*page_id, frame_id);
     return &pages_[frame_id];
   }
   return nullptr;
-}
-
-auto BufferPoolManager::HasReplacementFrame(frame_id_t &frame_id) -> bool {
-  if (!free_list_.empty()) {
-    // pick from free_list_ first
-    frame_id = free_list_.front();
-    free_list_.pop_front();
-    return true;
-  }
-
-  if (replacer_->Evict(&frame_id)) {
-    // pick from replacer second
-    if (pages_[frame_id].is_dirty_) {
-      FlushPage(pages_[frame_id].page_id_);
-    }
-    pages_[frame_id].ResetMemory();
-    pages_[frame_id].pin_count_ = 0;
-    page_table_.erase(pages_[frame_id].page_id_);
-    pages_[frame_id].page_id_ = INVALID_PAGE_ID;
-    return true;
-  }
-  return false;
 }
 
 auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType access_type) -> Page * {
   std::lock_guard<std::mutex> lock(latch_);
   if (page_table_.count(page_id) != 0) {
     auto frame_id = page_table_[page_id];
-    replacer_->SetEvictable(frame_id, false);
-    replacer_->RecordAccess(frame_id);
-    pages_[frame_id].pin_count_++;
+    UpdatePage(page_id, frame_id);
     return &pages_[frame_id];
   }
 
   frame_id_t frame_id;
-  if (HasReplacementFrame(frame_id)) {
-    NewBufferPage(frame_id, page_id);
+  if (PickFreePage(frame_id)) {
+    InitPage(page_id, frame_id);
     disk_manager_->ReadPage(page_id, pages_[frame_id].GetData());
     return &pages_[frame_id];
   }
@@ -91,16 +67,15 @@ auto BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty, [[maybe_unus
     return false;
   }
 
-  // unpin page
   auto frame_id = page_table_.at(page_id);
   pages_[frame_id].pin_count_--;
-  if (is_dirty) {
-    pages_[frame_id].is_dirty_ = is_dirty;
-  }
-
-  // evict page if pin count = 0
   if (pages_[frame_id].pin_count_ == 0) {
     replacer_->SetEvictable(frame_id, true);
+  }
+
+  // true -> false is not ok if one page have multiple users.
+  if (is_dirty) {
+    pages_[frame_id].is_dirty_ = is_dirty;
   }
   return true;
 }
