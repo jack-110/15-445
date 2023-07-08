@@ -17,6 +17,7 @@
 #include <queue>
 #include <shared_mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
@@ -129,6 +130,131 @@ class BPlusTree {
    * @return PrintableNode
    */
   auto ToPrintableBPlusTree(page_id_t root_id) -> PrintableBPlusTree;
+
+  void SplitLeafPage(LeafPage *leaf_page, KeyType &key, page_id_t &value) {
+    page_id_t page_id;
+    auto guard = bpm_->NewPageGuarded(&page_id);
+    auto page = guard.AsMut<LeafPage>();
+    page->Init(leaf_max_size_);
+    page->SetNextPageId(leaf_page->GetNextPageId());
+    leaf_page->SetNextPageId(guard.PageId());
+    BUSTUB_ENSURE(page->GetSize() == 0, "The size of new page should be 0.");
+    value = page_id;
+    key = leaf_page->Split(comparator_, page);
+  }
+
+  void SplitInternalPage(InternalPage *internal_page, KeyType &key, page_id_t &value) {
+    page_id_t page_id;
+    auto guard = bpm_->NewPageGuarded(&page_id);
+    auto page = guard.AsMut<InternalPage>();
+    page->Init(internal_max_size_);
+    page->Insert(comparator_, key, value);
+    value = page_id;
+    key = internal_page->Split(comparator_, page);
+  }
+
+  auto CreateTree(const KeyType &key, const ValueType &value) -> bool {
+    auto guard = bpm_->FetchPageWrite(header_page_id_);
+    auto header_page = guard.AsMut<BPlusTreeHeaderPage>();
+    BUSTUB_ENSURE(header_page->root_page_id_ == INVALID_PAGE_ID, "The tree should be empty when creaate tree.");
+    page_id_t page_id;
+    auto root_guard = bpm_->NewPageGuarded(&page_id);
+    auto root_page = root_guard.AsMut<LeafPage>();
+    root_page->Init(leaf_max_size_);
+    if (root_page->Insert(comparator_, key, value)) {
+      BUSTUB_ENSURE(root_page->GetSize() == 1, "The size of new root page should be one");
+      header_page->root_page_id_ = page_id;
+      return true;
+    }
+    return false;
+  }
+
+  void DecreaseTree(Context &ctx, page_id_t page_id) {
+    BUSTUB_ENSURE(ctx.header_page_.has_value(), "The header page should be locked when decrease tree.");
+    auto guard = std::move(ctx.header_page_.value());
+    auto header_page = guard.AsMut<BPlusTreeHeaderPage>();
+    header_page->root_page_id_ = page_id;
+    ctx.root_page_id_ = page_id;
+  }
+
+  void IncreaseTree(Context &ctx, const KeyType &key, page_id_t value) {
+    BUSTUB_ENSURE(ctx.header_page_.has_value(), "The header page should be locked when increase tree.");
+    page_id_t new_root_id;
+    auto guard = bpm_->NewPageGuarded(&new_root_id);
+    auto page = guard.AsMut<InternalPage>();
+    page->Init(internal_max_size_);
+
+    page->Insert(comparator_, KeyType{}, ctx.root_page_id_);
+    page->Insert(comparator_, key, value);
+
+    BUSTUB_ENSURE(page->GetSize() >= 2,
+                  "The size of root internal page should be greater than or equal with 2 when insert.");
+
+    auto header_guard = std::move(ctx.header_page_.value());
+    auto header_page = header_guard.AsMut<BPlusTreeHeaderPage>();
+    header_page->root_page_id_ = new_root_id;
+  }
+
+  /**
+   * @brief traverse the tree with read latch.
+   *
+   * @param ctx
+   * @param key
+   * @return const LeafPage*
+   */
+  void TranverseTreeWithRLatch(Context &ctx, const KeyType &key) const {
+    page_id_t page_id = ctx.root_page_id_;
+    while (true) {
+      auto guard = bpm_->FetchPageRead(page_id);
+      auto page = guard.As<BPlusTreePage>();
+      if (!ctx.read_set_.empty()) {
+        ctx.read_set_.pop_front();
+        ctx.header_page_ = std::nullopt;
+      }
+      BUSTUB_ENSURE(ctx.read_set_.empty(), "The size of read set should be 0 after releasing.");
+      if (page->IsLeafPage()) {
+        ctx.read_set_.push_back(std::move(guard));
+        return;
+      }
+      auto internal_page = guard.As<InternalPage>();
+      BUSTUB_ENSURE(internal_page->GetSize() >= 2, "The size of internal page should be >= 2.");
+      ctx.read_set_.push_back(std::move(guard));
+      page_id = internal_page->GetChild(comparator_, key);
+    }
+  }
+
+  /**
+   * @brief traverse the tree with write latch.
+   *
+   * @param ctx
+   * @param page_id
+   * @param key
+   */
+  void TranverseTreeWithWLatch(Context &ctx, const KeyType &key, OperationType operation) const {
+    auto header_guard = bpm_->FetchPageWrite(header_page_id_);
+    auto header_page = header_guard.AsMut<BPlusTreeHeaderPage>();
+    ctx.root_page_id_ = header_page->root_page_id_;
+    ctx.header_page_ = std::make_optional(std::move(header_guard));
+    page_id_t page_id = ctx.root_page_id_;
+    while (true) {
+      auto guard = bpm_->FetchPageWrite(page_id);
+      auto page = guard.AsMut<BPlusTreePage>();
+      if (page->IsSafe(operation)) {
+        ctx.write_set_.clear();
+        ctx.header_page_ = std::nullopt;
+      }
+
+      if (page->IsLeafPage()) {
+        ctx.write_set_.push_back(std::move(guard));
+        return;
+      }
+      auto internal_page = guard.As<InternalPage>();
+      BUSTUB_ASSERT(internal_page->GetSize() >= 2,
+                     "The size of internal page should be >= 2.");
+      ctx.write_set_.push_back(std::move(guard));
+      page_id = internal_page->GetChild(comparator_, key);
+    }
+  }
 
   // member variable
   std::string index_name_;
