@@ -68,7 +68,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
 
   /**
    * @brief merge the nodes by moving the entries from both the nodes into the left sibling and deleting the now-empty
-   * right sibling.
+   * right sibling. It will change the way we remove keys in it's parent node.
    *
    * @param comparator
    * @param page
@@ -80,8 +80,8 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    *
    * @param comparator
    * @param page
-   * @return KeyType: inserte into parent's page. And because the key is from right page, so >= the key, should go
-   * right.
+   * @return KeyType: search key and right page will be inserted into internal page. So if some key >= the  search key,
+   * then it should get it's pointer(page). The way how we split will change the way we search.
    */
   auto Split(const KeyComparator &comparator, B_PLUS_TREE_LEAF_PAGE_TYPE *page) -> KeyType;
 

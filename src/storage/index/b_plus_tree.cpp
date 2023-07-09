@@ -149,31 +149,21 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *txn) {
   Context ctx;
   TranverseTreeWithWLatch(ctx, key, OperationType::DELETE);
 
-  auto leaf_guard = std::move(ctx.write_set_.back());
+  auto sib1_guard = std::move(ctx.write_set_.back());
   ctx.write_set_.pop_back();
-  auto leaf_page = leaf_guard.AsMut<LeafPage>();
+  auto leaf_page = sib1_guard.AsMut<LeafPage>();
   if (!leaf_page->Remove(comparator_, key)) {
-    ctx.header_page_ = std::nullopt;
-    ctx.write_set_.clear();
-    return;
-  }
-
-  if (leaf_page->GetSize() >= leaf_page->GetMinSize()) {
-    BUSTUB_ENSURE(ctx.write_set_.empty(), "Theres should be no locks on tree except leaf page lock.");
-    ctx.header_page_ = std::nullopt;
     return;
   }
 
   // root as leaf, and the tree become empty
-  if (ctx.IsRootPage(leaf_guard.PageId()) && leaf_page->GetSize() == 0) {
+  if (ctx.IsRootPage(sib1_guard.PageId()) && leaf_page->GetSize() == 0) {
     BUSTUB_ENSURE(ctx.write_set_.empty(), "Theres should be no locks on tree except leaf page lock.");
     DecreaseTree(ctx, INVALID_PAGE_ID);
-    ctx.header_page_ = std::nullopt;
     return;
   }
 
   auto size = ctx.write_set_.size();
-  WritePageGuard search_guard = std::move(leaf_guard);
   for (size_t i = 0; i < size; i++) {
     auto guard = std::move(ctx.write_set_.back());
     ctx.write_set_.pop_back();
@@ -183,26 +173,22 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *txn) {
     auto right_id = search_index;
     BUSTUB_ENSURE(0 < search_index && search_index < page->GetSize(), "The search index should be in the middle.");
 
-    WritePageGuard left_guard;
-    WritePageGuard right_guard;
     // first layer: internal page -> leaf page.
     if (i == 0) {
       LeafPage *left_page;
       LeafPage *right_page;
-      if (search_guard.PageId() == page->ValueAt(left_id)) {
-        left_guard = std::move(search_guard);
-        left_page = left_guard.AsMut<LeafPage>();
-        right_guard = bpm_->FetchPageWrite(static_cast<page_id_t>(page->ValueAt(right_id)));
-        right_page = right_guard.AsMut<LeafPage>();
+      WritePageGuard sib2_guard;
+      if (sib1_guard.PageId() == page->ValueAt(left_id)) {
+        left_page = sib1_guard.AsMut<LeafPage>();
+        sib2_guard = bpm_->FetchPageWrite(static_cast<page_id_t>(page->ValueAt(right_id)));
+        right_page = sib2_guard.AsMut<LeafPage>();
       } else {
-        right_guard = std::move(search_guard);
-        right_page = right_guard.AsMut<LeafPage>();
-        left_guard = bpm_->FetchPageWrite(static_cast<page_id_t>(page->ValueAt(left_id)));
-        left_page = left_guard.AsMut<LeafPage>();
+        right_page = sib1_guard.AsMut<LeafPage>();
+        sib2_guard = bpm_->FetchPageWrite(static_cast<page_id_t>(page->ValueAt(left_id)));
+        left_page = sib2_guard.AsMut<LeafPage>();
       }
       BUSTUB_ENSURE(left_page != right_page, "The two pages should not be equal.");
-      auto total_size = left_page->GetSize() + right_page->GetSize();
-      if (total_size >= leaf_max_size_) {
+      if (left_page->GetSize() > left_page->GetMinSize() || right_page->GetSize() > right_page->GetMinSize()) {
         // redistribute
         auto up_key = left_page->Redistribute(comparator_, right_page);
         page->SetKeyAt(search_index, up_key);
@@ -210,50 +196,37 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *txn) {
                       "The size of left leaf page should be greater than or equal with min after redistribute.");
         BUSTUB_ENSURE(right_page->GetSize() >= right_page->GetMinSize(),
                       "The size of right leaf page should be greater than or equal with min after redistribute.");
-        BUSTUB_ENSURE((left_page->GetSize() + right_page->GetSize()) == total_size,
-                      "The leaf total size should not be changed after redistribute.");
-        ctx.header_page_ = std::nullopt;
-        ctx.write_set_.clear();
         return;
       }
       // merge
       left_page->Merge(comparator_, right_page);
-      BUSTUB_ENSURE(left_page->GetSize() < leaf_max_size_,
-                    "The size of left leaf page should be less than max size after merged.");
       BUSTUB_ENSURE(left_page->GetSize() >= left_page->GetMinSize(),
                     "The size of left leaf page should be greater than min size after merged.");
       BUSTUB_ENSURE(right_page->GetSize() == 0, "The size of right leaf page should be equal with 0 after merged.");
       page->Remove(search_index);
-      BUSTUB_ENSURE((left_page->GetSize() + right_page->GetSize()) == total_size,
-                    "The leaf total size should not be changed after merged.");
       // reach the last page and it's root, so need to check it.
       if (ctx.IsRootPage(guard.PageId()) && page->GetSize() < 2) {
-        BUSTUB_ENSURE(ctx.write_set_.empty(), "Reach the the last page, so only one lock left.");
-        BUSTUB_ENSURE(page->GetSize() == 1, "The size of root page should be one.");
         DecreaseTree(ctx, page->ValueAt(search_index - 1));
-        ctx.header_page_ = std::nullopt;
         return;
       }
-      left_guard.Drop();
-      right_guard.Drop();
-      search_guard = std::move(guard);
+      sib1_guard.Drop();
+      sib2_guard.Drop();
+      sib1_guard = std::move(guard);
     } else {
       InternalPage *left_page;
       InternalPage *right_page;
-      if (search_guard.PageId() == page->ValueAt(left_id)) {
-        left_guard = std::move(search_guard);
-        left_page = left_guard.AsMut<InternalPage>();
-        right_guard = bpm_->FetchPageWrite(static_cast<page_id_t>(page->ValueAt(right_id)));
-        right_page = right_guard.AsMut<InternalPage>();
+      WritePageGuard sib2_guard;
+      if (sib1_guard.PageId() == page->ValueAt(left_id)) {
+        left_page = sib1_guard.AsMut<InternalPage>();
+        sib2_guard = bpm_->FetchPageWrite(static_cast<page_id_t>(page->ValueAt(right_id)));
+        right_page = sib2_guard.AsMut<InternalPage>();
       } else {
-        right_guard = std::move(search_guard);
-        right_page = right_guard.AsMut<InternalPage>();
-        left_guard = bpm_->FetchPageWrite(static_cast<page_id_t>(page->ValueAt(left_id)));
-        left_page = left_guard.AsMut<InternalPage>();
+        right_page = sib1_guard.AsMut<InternalPage>();
+        sib2_guard = bpm_->FetchPageWrite(static_cast<page_id_t>(page->ValueAt(left_id)));
+        left_page = sib2_guard.AsMut<InternalPage>();
       }
       BUSTUB_ENSURE(left_page != right_page, "The two pages should not be equal.");
-      auto total_size = left_page->GetSize() + right_page->GetSize();
-      if (total_size > internal_max_size_) {
+      if (left_page->GetSize() > left_page->GetMinSize() || right_page->GetSize() > right_page->GetMinSize()) {
         // redistribute
         BUSTUB_ENSURE(
             left_page->GetSize() < left_page->GetMinSize() || right_page->GetSize() < left_page->GetMinSize(),
@@ -266,36 +239,22 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *txn) {
                       "The size of left internal page should be greater than or equal with min after redistribute.");
         BUSTUB_ENSURE(right_page->GetSize() >= right_page->GetMinSize(),
                       "The size of right internal page should be greater than or equal with min after redistribute.");
-        BUSTUB_ENSURE((left_page->GetSize() + right_page->GetSize()) == total_size,
-                      "The internal total size should not be changed after redistribute.");
-        ctx.header_page_ = std::nullopt;
-        ctx.write_set_.clear();
         return;
       }
       // merge and also move the search key down
       left_page->Merge(comparator_, right_page, page->KeyAt(search_index));
-      BUSTUB_ENSURE(left_page->GetSize() <= internal_max_size_,
-                    "The size of left internal page should be less than max after merged.");
       BUSTUB_ENSURE(left_page->GetSize() >= left_page->GetMinSize(),
                     "The size of left internal page should be greater than min size after merged.");
       BUSTUB_ENSURE(right_page->GetSize() == 0, "The size of right internal page should be 0 after merged.");
       page->Remove(search_index);
-      BUSTUB_ENSURE((left_page->GetSize() + right_page->GetSize()) == total_size,
-                    "The internal total size should not be changed after merged.");
-      if (ctx.write_set_.empty() && !ctx.IsRootPage(guard.PageId())) {
-        BUSTUB_ENSURE(page->GetSize() >= 2, "The size of last page should be >= 2.");
-      }
       // reach the last page and it's root, so need to check it.
       if (ctx.IsRootPage(guard.PageId()) && page->GetSize() < 2) {
-        BUSTUB_ENSURE(ctx.write_set_.empty(), "Reach the the last page, so only one lock left.");
-        BUSTUB_ENSURE(page->GetSize() == 1, "The size of root page should be one.");
         DecreaseTree(ctx, page->ValueAt(left_id));
-        ctx.header_page_ = std::nullopt;
         return;
       }
-      left_guard.Drop();
-      right_guard.Drop();
-      search_guard = std::move(guard);
+      sib1_guard.Drop();
+      sib2_guard.Drop();
+      sib1_guard = std::move(guard);
     }
   }
 }

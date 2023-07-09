@@ -83,7 +83,7 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   void SetValueAt(int index, const ValueType &value);
 
   /**
-   * @brief get position of the search key that is less than or equal with the key.
+   * @brief get position of the search key, so that it's right page >= the key and it's left page < the key.
    *
    * @param comparator
    * @param key
@@ -100,7 +100,7 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   void Remove(int search_index);
 
   /**
-   * @brief Get the child.
+   * @brief Get the child page.
    *
    * @param comparator
    * @param key

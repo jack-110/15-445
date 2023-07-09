@@ -76,6 +76,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Merge(const KeyComparator &comparator, B_PLUS_T
   }
   BUSTUB_ENSURE(page->GetSize() == 0, "The size of page should 0 after mergeing.");
   SetNextPageId(page->GetNextPageId());
+  page->SetNextPageId(-1);
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -96,45 +97,17 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::Split(const KeyComparator &comparator, B_PLUS_T
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::Redistribute(const KeyComparator &comparator, B_PLUS_TREE_LEAF_PAGE_TYPE *page)
     -> KeyType {
-  BUSTUB_ENSURE(page->GetSize() < GetMinSize() || GetSize() < GetMinSize(), "leaf redistribute wrong");
-  int total = GetSize() + page->GetSize();
-  if (page->GetSize() < GetMinSize()) {
-    int num = static_cast<int>(ceil(total / 2.0));
-    for (int i = 1; i <= num - page->GetSize(); i++) {
-      int index = GetSize() - 1;
-      page->Insert(comparator, array_[index].first, array_[index].second);
-      DeleteKeytAt(index);
-    }
-    return page->KeyAt(0);
-  }
-
-  int num = total - static_cast<int>(ceil(total / 2.0));
-  for (int i = 1; i <= num - GetSize(); i++) {
+  BUSTUB_ENSURE(page->GetSize() > GetMinSize() || GetSize() > GetMinSize(), "leaf redistribute wrong");
+  if (GetSize() > GetMinSize()) {
+    int index = GetSize() - 1;
+    page->Insert(comparator, array_[index].first, array_[index].second);
+    DeleteKeytAt(index);
+  } else {
     Insert(comparator, page->KeyAt(0), page->ValueAt(0));
-    DeleteKeytAt(0);
+    page->DeleteKeytAt(0);
   }
   return page->KeyAt(0);
 }
-
-/*
-INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_LEAF_PAGE_TYPE::Redistribute(const KeyComparator &comparator, B_PLUS_TREE_LEAF_PAGE_TYPE *page)
-    -> KeyType {
-  BUSTUB_ENSURE(page->GetSize() < GetMinSize() || GetSize() < GetMinSize(), "leaf redistribute wrong");
-  int size = GetSize();
-  if (size > page->GetSize()) {
-    BUSTUB_ENSURE(page->GetSize() < page->GetMinSize(),
-                  "The size of being merged right page should less than min size.");
-    page->Insert(comparator, array_[size - 1].first, array_[size - 1].second);
-    DeleteKeytAt(GetSize() - 1);
-    return page->KeyAt(0);
-  }
-  BUSTUB_ENSURE(GetSize() < GetMinSize(), "The size of being merged left page should less than min size.");
-  Insert(comparator, page->KeyAt(0), page->ValueAt(0));
-  page->DeleteKeytAt(0);
-  return page->KeyAt(0);
-}
-*/
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::Insert(const KeyComparator &comparator, const KeyType &key, const ValueType &value)

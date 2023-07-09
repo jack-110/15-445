@@ -74,23 +74,19 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::GetSearchIndex(const KeyComparator &compara
     return comparator(p1.first, p2.first) < 0;
   };
   auto index = std::upper_bound(array_ + 1, array_ + size, std::make_pair(key, ValueType{}), cmp) - array_ - 1;
-  if (index == 0) {
-    return 1;
-  }
-  return index;
+  return index == 0 ? 1 : index;
 }
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::GetChild(const KeyComparator &comparator, const KeyType &key) const -> page_id_t {
   auto size = GetSize();
-  BUSTUB_ENSURE(size > 0, "The size of internal should be > 0.");
   auto cmp = [comparator](const MappingType p1, const MappingType p2) -> bool {
     return comparator(p1.first, p2.first) < 0;
   };
-  auto index = std::upper_bound(array_ + 1, array_ + size, std::make_pair(key, ValueType{}), cmp) - array_;
-  BUSTUB_ENSURE(comparator(key, array_[index - 1].first) >= 0,
-                "The search key should be less than or equal with the key.");
-  return array_[index - 1].second;
+  auto index = std::upper_bound(array_ + 1, array_ + size, std::make_pair(key, ValueType{}), cmp) - array_ - 1;
+  BUSTUB_ENSURE(comparator(key, array_[index].first) >= 0,
+                "The key should be >= the search key, because the way we split.");
+  return array_[index].second;
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -132,23 +128,18 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Merge(const KeyComparator &comparator, B_PL
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Redistribute(const KeyComparator &comparator, B_PLUS_TREE_INTERNAL_PAGE_TYPE *page,
                                                   KeyType key) -> KeyType {
-  BUSTUB_ENSURE(page->GetSize() < GetMinSize() || GetSize() < GetMinSize(), "internal redistribute wrong");
-  if (GetSize() > page->GetSize()) {
-    // borrow from the right most from left page
-    auto up_key = array_[GetSize() - 1].first;
-    page->SetKeyAt(0, key);
-    page->InsertAt(0, KeyType{}, array_[GetSize() - 1].second);
-    // remove
-    DeleteKeytAt(GetSize() - 1);
-    return up_key;
+  BUSTUB_ENSURE(page->GetSize() > GetMinSize() || GetSize() > GetMinSize(), "internal redistribute wrong");
+  page->SetKeyAt(0, key);
+  if (GetSize() > GetMinSize()) {
+    int index = GetSize() - 1;
+    page->Insert(comparator, array_[index].first, array_[index].second);
+    DeleteKeytAt(index);
+    return page->KeyAt(0);
   }
 
-  // borrow form the left most from right page
-  auto up_key = page->KeyAt(1);
-  Insert(comparator, key, page->ValueAt(0));
-  page->SetValueAt(0, page->ValueAt(1));
-  page->DeleteKeytAt(1);
-  return up_key;
+  Insert(comparator, page->KeyAt(0), page->ValueAt(0));
+  page->DeleteKeytAt(0);
+  return page->KeyAt(0);
 }
 
 INDEX_TEMPLATE_ARGUMENTS

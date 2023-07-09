@@ -227,6 +227,7 @@ class BufferPoolManager {
       }
       pages_[frame_id].ResetMemory();
       pages_[frame_id].pin_count_ = 0;
+      pages_[frame_id].is_dirty_ = false;
       page_table_.erase(pages_[frame_id].page_id_);
       pages_[frame_id].page_id_ = INVALID_PAGE_ID;
       return true;

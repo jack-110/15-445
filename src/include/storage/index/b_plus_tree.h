@@ -249,8 +249,7 @@ class BPlusTree {
         return;
       }
       auto internal_page = guard.As<InternalPage>();
-      BUSTUB_ASSERT(internal_page->GetSize() >= 2,
-                     "The size of internal page should be >= 2.");
+      BUSTUB_ASSERT(internal_page->GetSize() >= 2, "The size of internal page should be >= 2.");
       ctx.write_set_.push_back(std::move(guard));
       page_id = internal_page->GetChild(comparator_, key);
     }
