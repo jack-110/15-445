@@ -24,6 +24,9 @@ namespace bustub {
 
 #define INDEX_TEMPLATE_ARGUMENTS template <typename KeyType, typename ValueType, typename KeyComparator>
 
+// define operation type enum
+enum class OperationType { INSERT, DELETE };
+
 // define page type enum
 enum class IndexPageType { INVALID_INDEX_PAGE = 0, LEAF_PAGE, INTERNAL_PAGE };
 
@@ -45,6 +48,9 @@ class BPlusTreePage {
   BPlusTreePage(const BPlusTreePage &other) = delete;
   ~BPlusTreePage() = delete;
 
+  auto IsFull() const -> bool;
+  auto IsSafe(OperationType type) const -> bool;
+
   auto IsLeafPage() const -> bool;
   void SetPageType(IndexPageType page_type);
 
@@ -57,10 +63,9 @@ class BPlusTreePage {
   auto GetMinSize() const -> int;
 
  private:
-  // member variable, attributes that both internal and leaf page share
-  IndexPageType page_type_ __attribute__((__unused__));
-  int size_ __attribute__((__unused__));
-  int max_size_ __attribute__((__unused__));
+  IndexPageType page_type_;
+  int size_;
+  int max_size_;
 };
 
 }  // namespace bustub

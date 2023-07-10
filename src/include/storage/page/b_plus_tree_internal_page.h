@@ -12,6 +12,7 @@
 
 #include <queue>
 #include <string>
+#include <utility>
 
 #include "storage/page/b_plus_tree_page.h"
 
@@ -74,6 +75,72 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   auto ValueAt(int index) const -> ValueType;
 
   /**
+   * @brief Set the Value At object
+   *
+   * @param index
+   * @param value
+   */
+  void SetValueAt(int index, const ValueType &value);
+
+  /**
+   * @brief get position of the search key, so that it's right page >= the key and it's left page < the key.
+   *
+   * @param comparator
+   * @param key
+   * @return int
+   */
+  auto GetSearchIndex(const KeyComparator &comparator, const KeyType &key) const -> int;
+
+  /**
+   * @brief Remove the right child of the search index, because the way we merge internal pages.
+   *
+   * @param search_index
+   * @return page_id_t
+   */
+  void Remove(int search_index);
+
+  /**
+   * @brief Get the child page.
+   *
+   * @param comparator
+   * @param key
+   * @return page_id_t
+   */
+  auto GetChild(const KeyComparator &comparator, const KeyType &key) const -> page_id_t;
+
+  /**
+   * @brief put the first ⌈n∕2⌉ in the newly created node and the remaining values in the existing node.
+   *
+   * @param comparator
+   * @param page
+   * @return KeyTy: peinserte into parent's page. And because the key is from right page, so >= the key, should go
+   * right.
+   */
+  auto Split(const KeyComparator &comparator, B_PLUS_TREE_INTERNAL_PAGE_TYPE *page) -> KeyType;
+
+  auto Insert(const KeyComparator &comparator, const KeyType &key, const ValueType &value) -> bool;
+
+  /**
+   * @brief merge the nodes by moving the entries from both the nodes into the left sibling and deleting the now-empty
+   * right sibling.
+   *
+   * @param comparator
+   * @param page
+   * @param key
+   */
+  void Merge(const KeyComparator &comparator, B_PLUS_TREE_INTERNAL_PAGE_TYPE *page, KeyType key);
+
+  /**
+   * @brief redistributes entries by borrowing a single entry from an adjacent node.
+   *
+   * @param comparator
+   * @param page
+   * @param key the key of parent that need to be moved down.
+   * @return KeyType, the key that need to be moved up and insert into parent.
+   */
+  auto Redistribute(const KeyComparator &comparator, B_PLUS_TREE_INTERNAL_PAGE_TYPE *page, KeyType key) -> KeyType;
+
+  /**
    * @brief For test only, return a string representing all keys in
    * this internal page, formatted as "(key1,key2,key3,...)"
    *
@@ -100,6 +167,22 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   }
 
  private:
+  void InsertAt(int position, const KeyType &key, const ValueType &value) {
+    for (int i = GetSize(); i > position; i--) {
+      array_[i] = array_[i - 1];
+    }
+    array_[position].first = key;
+    array_[position].second = value;
+    IncreaseSize(1);
+  }
+
+  void DeleteKeytAt(int position) {
+    for (int i = position; i < GetSize() - 1; i++) {
+      array_[i] = array_[i + 1];
+    }
+    array_[GetSize() - 1] = std::make_pair(KeyType{}, ValueType{});
+    IncreaseSize(-1);
+  }
   // Flexible array member for page data.
   MappingType array_[0];
 };

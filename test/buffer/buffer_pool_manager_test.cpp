@@ -163,36 +163,42 @@ TEST(BufferPoolManagerTest, NewPageTest) {
 
   page_id_t page_id_temp;
 
-  // case one: the buffer pool is empty
-  bpm->NewPage(&page_id_temp);
+  // case: new page when the buffer pool is empty
+  auto page0 = bpm->NewPage(&page_id_temp);
   EXPECT_EQ(0, page_id_temp);
 
-  // case two: buffer pool is filled up, so all the pages are in use
-  for (size_t i = 1; i < buffer_pool_size; ++i) {
+  // case: new page when the buffer pool is not empty and has free pages
+  bpm->NewPage(&page_id_temp);
+  EXPECT_EQ(1, page_id_temp);
+
+  for (size_t i = 2; i < buffer_pool_size; ++i) {
     bpm->NewPage(&page_id_temp);
     EXPECT_EQ(i, page_id_temp);
   }
 
+  // case: new page when all the pages in the buffer pool are pinned
   EXPECT_EQ(nullptr, bpm->NewPage(&page_id_temp));
 
-  // case three: some buffer pool pages are unpinned and not dirty
-  //  unpinned [0], pinned [1, 2, 3, 4, 5, 6, 7, 8, 9]
-  bpm->UnpinPage(0, false);
+  // case: new page when buffer pool has evitable and dirty page 0
+  snprintf(page0->GetData(), BUSTUB_PAGE_SIZE, "Hello");
+  EXPECT_EQ(0, strcmp(page0->GetData(), "Hello"));
 
-  // buffer pool is filled up, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-  auto *page10 = bpm->NewPage(&page_id_temp);
+  bpm->UnpinPage(0, true);
+  auto page10 = bpm->NewPage(&page_id_temp);
+  ASSERT_NE(nullptr, page10);
   EXPECT_EQ(10, page_id_temp);
 
-  // cast four: page 10 is evictable and dirty
-  snprintf(page10->GetData(), BUSTUB_PAGE_SIZE, "Hello");
-  EXPECT_EQ(0, strcmp(page10->GetData(), "Hello"));
-  EXPECT_TRUE(bpm->UnpinPage(10, true));
+  // check status of new page
+  ASSERT_FALSE(page10->IsDirty());
+  ASSERT_EQ(10, page10->GetPageId());
+  ASSERT_EQ(1, page10->GetPinCount());
 
-  bpm->NewPage(&page_id_temp);
-  EXPECT_EQ(11, page_id_temp);
-
-  // fetch page failed, buffer pool is filled up.
-  EXPECT_EQ(nullptr, bpm->FetchPage(10));
+  bpm->UnpinPage(1, true);
+  // check status of evicted page0
+  page0 = bpm->FetchPage(0);
+  ASSERT_FALSE(page0->IsDirty());
+  ASSERT_EQ(0, page0->GetPageId());
+  ASSERT_EQ(1, page0->GetPinCount());
 
   // Shutdown the disk manager and remove the temporary file we created.
   disk_manager->ShutDown();

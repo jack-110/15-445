@@ -16,7 +16,7 @@
 
 namespace bustub {
 
-TEST(LRUKReplacerTest, DISABLED_SampleTest) {
+TEST(LRUKReplacerTest, SampleTest) {
   LRUKReplacer lru_replacer(7, 2);
 
   // Scenario: add six elements to the replacer. We have [1,2,3,4,5]. Frame 6 is non-evictable.
@@ -97,52 +97,94 @@ TEST(LRUKReplacerTest, DISABLED_SampleTest) {
 }
 
 TEST(LRUKReplacerTest, EvictTest) {
-  LRUKReplacer lru_replacer(7, 3);
+  LRUKReplacer lru_replacer(7, 2);
 
   int value;
+  // case: all frames has k times access and all are evictable
+  lru_replacer.RecordAccess(2);
+  lru_replacer.RecordAccess(1);
+  lru_replacer.RecordAccess(1);
+  lru_replacer.RecordAccess(2);
+  lru_replacer.RecordAccess(2);
+  lru_replacer.RecordAccess(1);
 
-  // case: [4, 3, 1, 2]
-  lru_replacer.RecordAccess(1);
-  lru_replacer.RecordAccess(2);
-  lru_replacer.RecordAccess(3);
-  lru_replacer.RecordAccess(4);
-  lru_replacer.RecordAccess(1);
-  lru_replacer.RecordAccess(2);
-  lru_replacer.RecordAccess(3);
-  lru_replacer.RecordAccess(1);
-  lru_replacer.RecordAccess(2);
   lru_replacer.SetEvictable(1, true);
   lru_replacer.SetEvictable(2, true);
-  lru_replacer.SetEvictable(3, true);
-  lru_replacer.SetEvictable(4, true);
 
-  // evict 3, and remaing [4, 1, 2]
-  lru_replacer.Evict(&value);
-  ASSERT_THROW(lru_replacer.SetEvictable(3, true), std::runtime_error);
+  ASSERT_TRUE(lru_replacer.Evict(&value));
+  ASSERT_EQ(1, value);
+  ASSERT_THROW(lru_replacer.SetEvictable(1, false), std::runtime_error);
 
-  // record access for frame 3 agin, now [4, 1, 2, 3]
-  lru_replacer.RecordAccess(3);
+  // case: all frames has k times access and all are not evictable
+  lru_replacer.RecordAccess(1);
+  lru_replacer.RecordAccess(1);
+  lru_replacer.RecordAccess(1);
+  lru_replacer.SetEvictable(1, false);
+  lru_replacer.SetEvictable(2, false);
 
-  lru_replacer.Evict(&value);
-  ASSERT_EQ(4, value);
+  ASSERT_FALSE(lru_replacer.Evict(&value));
 
-  lru_replacer.Evict(&value);
+  // case: all frames has k times access and some are not evictable
+  lru_replacer.SetEvictable(2, true);
+
+  ASSERT_TRUE(lru_replacer.Evict(&value));
+  ASSERT_EQ(2, value);
+
+  // clear all frames, prepare test for next cases
+  lru_replacer.SetEvictable(1, true);
+
+  ASSERT_TRUE(lru_replacer.Evict(&value));
   ASSERT_EQ(1, value);
 
-  LRUKReplacer replacer(1000, 3);
+  ASSERT_EQ(0, lru_replacer.Size());
 
-  for (int i = 0; i < 1000; i++) {
-    replacer.RecordAccess(i);
-    replacer.RecordAccess(i);
-    replacer.RecordAccess(i);
-    replacer.SetEvictable(i, true);
-  }
+  // case: all frames has less than k times access and all are evictable
+  lru_replacer.RecordAccess(2);
+  lru_replacer.RecordAccess(1);
+  lru_replacer.SetEvictable(1, true);
+  lru_replacer.SetEvictable(2, true);
 
-  replacer.Evict(&value);
-  ASSERT_EQ(0, value);
+  ASSERT_TRUE(lru_replacer.Evict(&value));
+  ASSERT_EQ(2, value);
+
+  // case: all frames has less than k times access and all are not evictable
+  lru_replacer.RecordAccess(2);
+  lru_replacer.SetEvictable(2, false);
+  lru_replacer.SetEvictable(1, false);
+
+  ASSERT_FALSE(lru_replacer.Evict(&value));
+
+  // case: all frames has less than k times access and some are not evictable
+  lru_replacer.SetEvictable(1, true);
+
+  ASSERT_TRUE(lru_replacer.Evict(&value));
+  ASSERT_EQ(1, value);
 }
 
-TEST(LRUKReplacerTest, DISABLED_ConcurrencyTest) {
+TEST(LRUKReplacerTest, SetEvictableTest) {
+  LRUKReplacer lru_replacer(7, 3);
+
+  lru_replacer.RecordAccess(1);
+  ASSERT_EQ(0, lru_replacer.Size());
+
+  // case: false -> true
+  lru_replacer.SetEvictable(1, true);
+  ASSERT_EQ(1, lru_replacer.Size());
+
+  // case: true -> true
+  lru_replacer.SetEvictable(1, true);
+  ASSERT_EQ(1, lru_replacer.Size());
+
+  // case: true -> false
+  lru_replacer.SetEvictable(1, false);
+  ASSERT_EQ(0, lru_replacer.Size());
+
+  // case: false -> false
+  lru_replacer.SetEvictable(1, false);
+  ASSERT_EQ(0, lru_replacer.Size());
+}
+
+TEST(LRUKReplacerTest, ConcurrencyTest) {
   const int k = 2;
   const int num_frames = 10;
   LRUKReplacer replacer(num_frames, k);

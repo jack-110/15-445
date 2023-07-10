@@ -14,6 +14,8 @@
 namespace bustub {
 TEST(LockManagerDeadlockDetectionTest, DISABLED_EdgeTest) {
   LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+  lock_mgr.txn_manager_ = &txn_mgr;
 
   const int num_nodes = 100;
   const int num_edges = num_nodes / 2;
@@ -57,6 +59,8 @@ TEST(LockManagerDeadlockDetectionTest, DISABLED_EdgeTest) {
 TEST(LockManagerDeadlockDetectionTest, DISABLED_BasicDeadlockDetectionTest) {
   LockManager lock_mgr{};
   TransactionManager txn_mgr{&lock_mgr};
+  lock_mgr.txn_manager_ = &txn_mgr;
+  lock_mgr.StartDeadlockDetection();
 
   table_oid_t toid{0};
   RID rid0{0, 0};

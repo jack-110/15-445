@@ -24,20 +24,58 @@ class IndexIterator {
  public:
   // you may define your own constructor based on your member variables
   IndexIterator();
+  IndexIterator(BufferPoolManager *bpm, ReadPageGuard guard, int index);
   ~IndexIterator();  // NOLINT
 
-  auto IsEnd() -> bool;
+  auto IsEnd() const -> bool;
+
+  auto GetIndex() const -> int { return index_; }
+
+  auto GetPageId() const -> page_id_t { return page_id_; }
 
   auto operator*() -> const MappingType &;
 
   auto operator++() -> IndexIterator &;
 
-  auto operator==(const IndexIterator &itr) const -> bool { throw std::runtime_error("unimplemented"); }
+  auto operator==(const IndexIterator &itr) const -> bool {
+    if (is_end_) {
+      return itr.IsEnd();
+    }
 
-  auto operator!=(const IndexIterator &itr) const -> bool { throw std::runtime_error("unimplemented"); }
+    if (itr.IsEnd()) {
+      return false;
+    }
+
+    if (page_id_ != itr.GetPageId()) {
+      return false;
+    }
+
+    return index_ == itr.GetIndex();
+  }
+
+  auto operator!=(const IndexIterator &itr) const -> bool {
+    if (is_end_) {
+      return !itr.IsEnd();
+    }
+
+    if (itr.IsEnd()) {
+      return true;
+    }
+
+    if (page_id_ != itr.GetPageId()) {
+      return true;
+    }
+
+    return index_ != itr.GetIndex();
+  }
 
  private:
   // add your own private member variables here
+  int index_ = 0;
+  page_id_t page_id_;
+  bool is_end_{false};
+  ReadPageGuard guard_;
+  BufferPoolManager *bpm_{nullptr};
 };
 
 }  // namespace bustub

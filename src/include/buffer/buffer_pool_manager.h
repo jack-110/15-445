@@ -181,7 +181,7 @@ class BufferPoolManager {
   /** Array of buffer pool pages. */
   Page *pages_;
   /** Pointer to the disk manager. */
-  DiskManager *disk_manager_ __attribute__((__unused__));
+  DiskManager *disk_manager_;
   /** Pointer to the log manager. Please ignore this for P1. */
   LogManager *log_manager_ __attribute__((__unused__));
   /** Page table for keeping track of buffer pool pages. */
@@ -207,9 +207,42 @@ class BufferPoolManager {
     // This is a no-nop right now without a more complex data structure to track deallocated pages
   }
 
-  auto HasReplacementFrame(frame_id_t &frame_id) -> bool;
+  /**
+   * @brief pick free pages from free list or evict a page.
+   *
+   * @param frame_id
+   * @return true if pick a page successfully
+   * @return false if pick a page failed.
+   */
+  auto PickFreePage(frame_id_t &frame_id) -> bool {
+    if (!free_list_.empty()) {
+      frame_id = free_list_.front();
+      free_list_.pop_front();
+      return true;
+    }
 
-  void NewBufferPage(frame_id_t &frame_id, page_id_t &page_id) {
+    if (replacer_->Evict(&frame_id)) {
+      if (pages_[frame_id].is_dirty_) {
+        FlushPage(pages_[frame_id].page_id_);
+      }
+      pages_[frame_id].ResetMemory();
+      pages_[frame_id].pin_count_ = 0;
+      pages_[frame_id].is_dirty_ = false;
+      page_table_.erase(pages_[frame_id].page_id_);
+      pages_[frame_id].page_id_ = INVALID_PAGE_ID;
+      return true;
+    }
+    return false;
+  }
+
+  void UpdatePage(page_id_t &page_id, frame_id_t &frame_id) {
+    pages_[frame_id].pin_count_++;
+
+    replacer_->RecordAccess(frame_id);
+    replacer_->SetEvictable(frame_id, false);
+  }
+
+  void InitPage(page_id_t &page_id, frame_id_t &frame_id) {
     pages_[frame_id].pin_count_++;
     pages_[frame_id].page_id_ = page_id;
     pages_[frame_id].is_dirty_ = false;
@@ -218,7 +251,5 @@ class BufferPoolManager {
     replacer_->RecordAccess(frame_id);
     replacer_->SetEvictable(frame_id, false);
   }
-
-  // TODO(student): You may add additional private members and helper functions
 };
 }  // namespace bustub

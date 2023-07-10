@@ -26,7 +26,11 @@ BPLUSTREE_TYPE::BPlusTree(std::string name, page_id_t header_page_id, BufferPool
  * Helper function to decide whether current b+tree is empty
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::IsEmpty() const -> bool { return true; }
+auto BPLUSTREE_TYPE::IsEmpty() const -> bool {
+  auto header_page_guard = bpm_->FetchPageRead(header_page_id_);
+  auto header_page = header_page_guard.As<BPlusTreeHeaderPage>();
+  return header_page->root_page_id_ == INVALID_PAGE_ID;
+}
 /*****************************************************************************
  * SEARCH
  *****************************************************************************/
@@ -37,10 +41,17 @@ auto BPLUSTREE_TYPE::IsEmpty() const -> bool { return true; }
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *txn) -> bool {
-  // Declaration of context instance.
+  if (IsEmpty()) {
+    return false;
+  }
+
   Context ctx;
-  (void)ctx;
-  return false;
+  TranverseTreeWithRLatch(ctx, key);
+
+  auto leaf_guard = std::move(ctx.read_set_.back());
+  ctx.read_set_.pop_back();
+  auto leaf_page = leaf_guard.As<LeafPage>();
+  return leaf_page->GetValue(comparator_, key, result);
 }
 
 /*****************************************************************************
@@ -55,10 +66,68 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transaction *txn) -> bool {
-  // Declaration of context instance.
   Context ctx;
-  (void)ctx;
-  return false;
+  auto header_guard = bpm_->FetchPageWrite(header_page_id_);
+  auto header_page = header_guard.AsMut<BPlusTreeHeaderPage>();
+  ctx.root_page_id_ = header_page->root_page_id_;
+  ctx.header_page_ = std::make_optional(std::move(header_guard));
+  if (ctx.root_page_id_ == INVALID_PAGE_ID) {
+    return CreateTree(ctx, key, value);
+  }
+
+  TranverseTreeWithWLatch(ctx, key, OperationType::INSERT);
+
+  auto leaf_guard = std::move(ctx.write_set_.back());
+  ctx.write_set_.pop_back();
+  auto leaf_page = leaf_guard.AsMut<LeafPage>();
+  if (!leaf_page->Insert(comparator_, key, value)) {
+    ctx.header_page_ = std::nullopt;
+    ctx.write_set_.clear();
+    leaf_guard.Drop();
+    return false;
+  }
+
+  if (!leaf_page->IsFull()) {
+    leaf_guard.Drop();
+    BUSTUB_ENSURE(ctx.write_set_.empty(), "The write locks should have been released.");
+    return true;
+  }
+
+  KeyType child_key;
+  page_id_t child_value;
+  // split an leaf node when number of values reaches max_size after insertion.
+  SplitLeafPage(leaf_page, child_key, child_value);
+  if (ctx.IsRootPage(leaf_guard.PageId())) {
+    IncreaseTree(ctx, child_key, child_value);
+    leaf_guard.Drop();
+    BUSTUB_ENSURE(ctx.write_set_.empty(), "There should have no locks.");
+    return true;
+  }
+  leaf_guard.Drop();
+
+  // internal page layers
+  while (!ctx.write_set_.empty()) {
+    auto guard = std::move(ctx.write_set_.back());
+    ctx.write_set_.pop_back();
+    auto page = guard.AsMut<InternalPage>();
+    if (!page->IsFull()) {
+      BUSTUB_ASSERT(ctx.write_set_.empty(), "The number of locks shuold be 0.");
+      page->Insert(comparator_, child_key, child_value);
+      return true;
+    }
+
+    // split an internal node when number of values reaches max_size before insertion.
+    // the child_key and child_value updated in this method.
+    SplitInternalPage(page, child_key, child_value);
+    BUSTUB_ASSERT(page->GetSize() >= page->GetMinSize(),
+                  "The size of internal page should be greater than or equal with min when after split.");
+    if (ctx.IsRootPage(guard.PageId())) {
+      IncreaseTree(ctx, child_key, child_value);
+    }
+    guard.Drop();
+  }
+
+  return true;
 }
 
 /*****************************************************************************
@@ -73,9 +142,125 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
  */
 INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *txn) {
-  // Declaration of context instance.
+  if (IsEmpty()) {
+    return;
+  }
+
   Context ctx;
-  (void)ctx;
+  auto header_guard = bpm_->FetchPageWrite(header_page_id_);
+  auto header_page = header_guard.AsMut<BPlusTreeHeaderPage>();
+  ctx.root_page_id_ = header_page->root_page_id_;
+  ctx.header_page_ = std::make_optional(std::move(header_guard));
+  TranverseTreeWithWLatch(ctx, key, OperationType::DELETE);
+
+  auto sib1_guard = std::move(ctx.write_set_.back());
+  ctx.write_set_.pop_back();
+  auto leaf_page = sib1_guard.AsMut<LeafPage>();
+  if (!leaf_page->Remove(comparator_, key)) {
+    return;
+  }
+
+  // root as leaf, and the tree become empty
+  if (ctx.IsRootPage(sib1_guard.PageId()) && leaf_page->GetSize() == 0) {
+    BUSTUB_ENSURE(ctx.write_set_.empty(), "Theres should be no locks on tree except leaf page lock.");
+    DecreaseTree(ctx, INVALID_PAGE_ID);
+    return;
+  }
+
+  auto size = ctx.write_set_.size();
+  for (size_t i = 0; i < size; i++) {
+    auto guard = std::move(ctx.write_set_.back());
+    ctx.write_set_.pop_back();
+    auto page = guard.AsMut<InternalPage>();
+    auto search_index = page->GetSearchIndex(comparator_, key);
+    auto left_id = search_index - 1;
+    auto right_id = search_index;
+    BUSTUB_ENSURE(0 < search_index && search_index < page->GetSize(), "The search index should be in the middle.");
+
+    // first layer: internal page -> leaf page.
+    if (i == 0) {
+      LeafPage *left_page;
+      LeafPage *right_page;
+      WritePageGuard sib2_guard;
+      if (sib1_guard.PageId() == page->ValueAt(left_id)) {
+        left_page = sib1_guard.AsMut<LeafPage>();
+        sib2_guard = bpm_->FetchPageWrite(static_cast<page_id_t>(page->ValueAt(right_id)));
+        right_page = sib2_guard.AsMut<LeafPage>();
+      } else {
+        right_page = sib1_guard.AsMut<LeafPage>();
+        sib2_guard = bpm_->FetchPageWrite(static_cast<page_id_t>(page->ValueAt(left_id)));
+        left_page = sib2_guard.AsMut<LeafPage>();
+      }
+      BUSTUB_ENSURE(left_page != right_page, "The two pages should not be equal.");
+      if (left_page->GetSize() > left_page->GetMinSize() || right_page->GetSize() > right_page->GetMinSize()) {
+        // redistribute
+        auto up_key = left_page->Redistribute(comparator_, right_page);
+        page->SetKeyAt(search_index, up_key);
+        BUSTUB_ENSURE(left_page->GetSize() >= left_page->GetMinSize(),
+                      "The size of left leaf page should be greater than or equal with min after redistribute.");
+        BUSTUB_ENSURE(right_page->GetSize() >= right_page->GetMinSize(),
+                      "The size of right leaf page should be greater than or equal with min after redistribute.");
+        return;
+      }
+      // merge
+      left_page->Merge(comparator_, right_page);
+      BUSTUB_ENSURE(left_page->GetSize() >= left_page->GetMinSize(),
+                    "The size of left leaf page should be greater than min size after merged.");
+      BUSTUB_ENSURE(right_page->GetSize() == 0, "The size of right leaf page should be equal with 0 after merged.");
+      page->Remove(search_index);
+      // reach the last page and it's root, so need to check it.
+      if (ctx.IsRootPage(guard.PageId()) && page->GetSize() < 2) {
+        DecreaseTree(ctx, page->ValueAt(search_index - 1));
+        return;
+      }
+      sib1_guard.Drop();
+      sib2_guard.Drop();
+      sib1_guard = std::move(guard);
+    } else {
+      InternalPage *left_page;
+      InternalPage *right_page;
+      WritePageGuard sib2_guard;
+      if (sib1_guard.PageId() == page->ValueAt(left_id)) {
+        left_page = sib1_guard.AsMut<InternalPage>();
+        sib2_guard = bpm_->FetchPageWrite(static_cast<page_id_t>(page->ValueAt(right_id)));
+        right_page = sib2_guard.AsMut<InternalPage>();
+      } else {
+        right_page = sib1_guard.AsMut<InternalPage>();
+        sib2_guard = bpm_->FetchPageWrite(static_cast<page_id_t>(page->ValueAt(left_id)));
+        left_page = sib2_guard.AsMut<InternalPage>();
+      }
+      BUSTUB_ENSURE(left_page != right_page, "The two pages should not be equal.");
+      if (left_page->GetSize() > left_page->GetMinSize() || right_page->GetSize() > right_page->GetMinSize()) {
+        // redistribute
+        BUSTUB_ENSURE(
+            left_page->GetSize() < left_page->GetMinSize() || right_page->GetSize() < left_page->GetMinSize(),
+            "The size of left internal page or right internal page should be less than min size when redistribute.");
+        // also include move the search key down
+        auto upper_key = left_page->Redistribute(comparator_, right_page, page->KeyAt(search_index));
+        // move the new search key up
+        page->SetKeyAt(search_index, upper_key);
+        BUSTUB_ENSURE(left_page->GetSize() >= left_page->GetMinSize(),
+                      "The size of left internal page should be greater than or equal with min after redistribute.");
+        BUSTUB_ENSURE(right_page->GetSize() >= right_page->GetMinSize(),
+                      "The size of right internal page should be greater than or equal with min after redistribute.");
+        return;
+      }
+      // merge and also move the search key down
+      left_page->Merge(comparator_, right_page, page->KeyAt(search_index));
+      BUSTUB_ENSURE(left_page->GetSize() >= left_page->GetMinSize(),
+                    "The size of left internal page should be greater than min size after merged.");
+      BUSTUB_ENSURE(right_page->GetSize() == 0, "The size of right internal page should be 0 after merged.");
+      page->Remove(search_index);
+      // reach the last page and it's root, so need to check it.
+      if (ctx.IsRootPage(guard.PageId()) && page->GetSize() < 2) {
+        DecreaseTree(ctx, page->ValueAt(left_id));
+        return;
+      }
+      sib1_guard.Drop();
+      sib2_guard.Drop();
+      sib1_guard = std::move(guard);
+    }
+  }
 }
 
 /*****************************************************************************
@@ -87,7 +272,13 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *txn) {
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
+  if (IsEmpty()) {
+    return INDEXITERATOR_TYPE();
+  }
+  auto guard = bpm_->FetchPageRead(1);
+  return INDEXITERATOR_TYPE(bpm_, std::move(guard), 0);
+}
 
 /*
  * Input parameter is low key, find the leaf page that contains the input key
@@ -95,7 +286,22 @@ auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE()
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
+  Context ctx;
+  auto guard = bpm_->FetchPageRead(header_page_id_);
+  auto header_page = guard.As<BPlusTreeHeaderPage>();
+  ctx.root_page_id_ = header_page->root_page_id_;
+  guard.Drop();
+  TranverseTreeWithRLatch(ctx, key);
+  auto leaf_guard = std::move(ctx.read_set_.back());
+  auto leaf_page = leaf_guard.As<LeafPage>();
+  for (int i = 0; i < leaf_page->GetSize(); i++) {
+    if (comparator_(key, leaf_page->KeyAt(i)) == 0) {
+      return INDEXITERATOR_TYPE(bpm_, std::move(leaf_guard), i);
+    }
+  }
+  return INDEXITERATOR_TYPE();
+}
 
 /*
  * Input parameter is void, construct an index iterator representing the end
@@ -109,7 +315,11 @@ auto BPLUSTREE_TYPE::End() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); 
  * @return Page id of the root of this tree
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::GetRootPageId() -> page_id_t { return 0; }
+auto BPLUSTREE_TYPE::GetRootPageId() -> page_id_t {
+  auto guard = bpm_->FetchPageBasic(header_page_id_);
+  auto header_page = guard.AsMut<BPlusTreeHeaderPage>();
+  return header_page->root_page_id_;
+}
 
 /*****************************************************************************
  * UTILITIES AND DEBUG
@@ -343,5 +553,4 @@ template class BPlusTree<GenericKey<16>, RID, GenericComparator<16>>;
 template class BPlusTree<GenericKey<32>, RID, GenericComparator<32>>;
 
 template class BPlusTree<GenericKey<64>, RID, GenericComparator<64>>;
-
 }  // namespace bustub
