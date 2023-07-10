@@ -268,7 +268,13 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *txn) {
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
+  if (IsEmpty()) {
+    return INDEXITERATOR_TYPE();
+  }
+  auto guard = bpm_->FetchPageRead(1);
+  return INDEXITERATOR_TYPE(bpm_, std::move(guard), 0);
+}
 
 /*
  * Input parameter is low key, find the leaf page that contains the input key
@@ -276,7 +282,22 @@ auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE()
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
+  Context ctx;
+  auto guard = bpm_->FetchPageRead(header_page_id_);
+  auto header_page = guard.As<BPlusTreeHeaderPage>();
+  ctx.root_page_id_ = header_page->root_page_id_;
+  guard.Drop();
+  TranverseTreeWithRLatch(ctx, key);
+  auto leaf_guard = std::move(ctx.read_set_.back());
+  auto leaf_page = leaf_guard.As<LeafPage>();
+  for (int i = 0; i < leaf_page->GetSize(); i++) {
+    if (comparator_(key, leaf_page->KeyAt(i)) == 0) {
+      return INDEXITERATOR_TYPE(bpm_, std::move(leaf_guard), i);
+    }
+  }
+  return INDEXITERATOR_TYPE();
+}
 
 /*
  * Input parameter is void, construct an index iterator representing the end

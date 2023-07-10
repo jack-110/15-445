@@ -66,6 +66,9 @@ INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::SetValueAt(int index, const ValueType &value) { array_[index].second = value; }
 
 INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetMappingAt(int index) const -> const MappingType & { return array_[index]; }
+
+INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::Merge(const KeyComparator &comparator, B_PLUS_TREE_LEAF_PAGE_TYPE *page) {
   auto right_size = page->GetSize();
   for (int i = 0; i < right_size; i++) {
@@ -76,7 +79,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Merge(const KeyComparator &comparator, B_PLUS_T
   }
   BUSTUB_ENSURE(page->GetSize() == 0, "The size of page should 0 after mergeing.");
   SetNextPageId(page->GetNextPageId());
-  page->SetNextPageId(-1);
+  page->SetNextPageId(INVALID_PAGE_ID);
 }
 
 INDEX_TEMPLATE_ARGUMENTS
