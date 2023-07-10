@@ -153,8 +153,8 @@ class BPlusTree {
     key = internal_page->Split(comparator_, page);
   }
 
-  auto CreateTree(const KeyType &key, const ValueType &value) -> bool {
-    auto guard = bpm_->FetchPageWrite(header_page_id_);
+  auto CreateTree(Context &ctx, const KeyType &key, const ValueType &value) -> bool {
+    auto guard = std::move(ctx.header_page_.value());
     auto header_page = guard.AsMut<BPlusTreeHeaderPage>();
     BUSTUB_ENSURE(header_page->root_page_id_ == INVALID_PAGE_ID, "The tree should be empty when creaate tree.");
     page_id_t page_id;
@@ -203,13 +203,16 @@ class BPlusTree {
    * @return const LeafPage*
    */
   void TranverseTreeWithRLatch(Context &ctx, const KeyType &key) const {
-    page_id_t page_id = ctx.root_page_id_;
+    auto header_guard = bpm_->FetchPageRead(header_page_id_);
+    auto header_page = header_guard.As<BPlusTreeHeaderPage>();
+    page_id_t page_id = header_page->root_page_id_;
     while (true) {
       auto guard = bpm_->FetchPageRead(page_id);
       auto page = guard.As<BPlusTreePage>();
       if (!ctx.read_set_.empty()) {
         ctx.read_set_.pop_front();
-        ctx.header_page_ = std::nullopt;
+      } else {
+        header_guard.Drop();
       }
       BUSTUB_ENSURE(ctx.read_set_.empty(), "The size of read set should be 0 after releasing.");
       if (page->IsLeafPage()) {
@@ -231,10 +234,6 @@ class BPlusTree {
    * @param key
    */
   void TranverseTreeWithWLatch(Context &ctx, const KeyType &key, OperationType operation) const {
-    auto header_guard = bpm_->FetchPageWrite(header_page_id_);
-    auto header_page = header_guard.AsMut<BPlusTreeHeaderPage>();
-    ctx.root_page_id_ = header_page->root_page_id_;
-    ctx.header_page_ = std::make_optional(std::move(header_guard));
     page_id_t page_id = ctx.root_page_id_;
     while (true) {
       auto guard = bpm_->FetchPageWrite(page_id);

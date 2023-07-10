@@ -46,12 +46,8 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
   }
 
   Context ctx;
-  auto guard = bpm_->FetchPageRead(header_page_id_);
-  auto header_page = guard.As<BPlusTreeHeaderPage>();
-  ctx.root_page_id_ = header_page->root_page_id_;
-  guard.Drop();
-
   TranverseTreeWithRLatch(ctx, key);
+
   auto leaf_guard = std::move(ctx.read_set_.back());
   ctx.read_set_.pop_back();
   auto leaf_page = leaf_guard.As<LeafPage>();
@@ -70,11 +66,15 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transaction *txn) -> bool {
-  if (IsEmpty()) {
-    return CreateTree(key, value);
+  Context ctx;
+  auto header_guard = bpm_->FetchPageWrite(header_page_id_);
+  auto header_page = header_guard.AsMut<BPlusTreeHeaderPage>();
+  ctx.root_page_id_ = header_page->root_page_id_;
+  ctx.header_page_ = std::make_optional(std::move(header_guard));
+  if (ctx.root_page_id_ == INVALID_PAGE_ID) {
+    return CreateTree(ctx, key, value);
   }
 
-  Context ctx;
   TranverseTreeWithWLatch(ctx, key, OperationType::INSERT);
 
   auto leaf_guard = std::move(ctx.write_set_.back());
@@ -147,6 +147,10 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *txn) {
   }
 
   Context ctx;
+  auto header_guard = bpm_->FetchPageWrite(header_page_id_);
+  auto header_page = header_guard.AsMut<BPlusTreeHeaderPage>();
+  ctx.root_page_id_ = header_page->root_page_id_;
+  ctx.header_page_ = std::make_optional(std::move(header_guard));
   TranverseTreeWithWLatch(ctx, key, OperationType::DELETE);
 
   auto sib1_guard = std::move(ctx.write_set_.back());
