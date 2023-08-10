@@ -170,6 +170,7 @@ class BPlusTree {
     BUSTUB_ENSURE(header_page->root_page_id_ == INVALID_PAGE_ID, "The tree should be empty when creaate tree.");
     page_id_t page_id;
     auto root_guard = bpm_->NewPageGuarded(&page_id);
+    left_page_id_ = page_id;
     auto root_page = root_guard.AsMut<LeafPage>();
     root_page->Init(leaf_max_size_);
     if (root_page->Insert(comparator_, key, value)) {
@@ -272,6 +273,7 @@ class BPlusTree {
   std::vector<std::string> log;  // NOLINT
   int leaf_max_size_;
   int internal_max_size_;
+  page_id_t left_page_id_;
   page_id_t header_page_id_;
 };
 

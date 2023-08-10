@@ -15,6 +15,15 @@ INDEX_TEMPLATE_ARGUMENTS
 INDEXITERATOR_TYPE::IndexIterator() { is_end_ = true; }
 
 INDEX_TEMPLATE_ARGUMENTS
+INDEXITERATOR_TYPE::IndexIterator(IndexIterator &&other) noexcept {
+  index_ = other.index_;
+  is_end_ = other.is_end_;
+  page_id_ = other.page_id_;
+  bpm_ = other.bpm_;
+  guard_ = std::move(other.guard_);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
 INDEXITERATOR_TYPE::IndexIterator(BufferPoolManager *bpm, ReadPageGuard guard, int index) {
   bpm_ = bpm;
   index_ = index;

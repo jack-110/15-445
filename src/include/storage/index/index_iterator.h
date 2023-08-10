@@ -24,6 +24,7 @@ class IndexIterator {
  public:
   // you may define your own constructor based on your member variables
   IndexIterator();
+  IndexIterator(IndexIterator &&other) noexcept;
   IndexIterator(BufferPoolManager *bpm, ReadPageGuard guard, int index);
   ~IndexIterator();  // NOLINT
 

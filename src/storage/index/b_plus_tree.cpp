@@ -276,7 +276,7 @@ auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
   if (IsEmpty()) {
     return INDEXITERATOR_TYPE();
   }
-  auto guard = bpm_->FetchPageRead(1);
+  auto guard = bpm_->FetchPageRead(left_page_id_);
   return INDEXITERATOR_TYPE(bpm_, std::move(guard), 0);
 }
 
