@@ -276,7 +276,7 @@ auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
   if (IsEmpty()) {
     return INDEXITERATOR_TYPE();
   }
-  auto guard = bpm_->FetchPageRead(1);
+  auto guard = bpm_->FetchPageRead(left_page_id_);
   return INDEXITERATOR_TYPE(bpm_, std::move(guard), 0);
 }
 
@@ -333,9 +333,7 @@ INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::InsertFromFile(const std::string &file_name, Transaction *txn) {
   int64_t key;
   std::ifstream input(file_name);
-  while (input) {
-    input >> key;
-
+  while (input >> key) {
     KeyType index_key;
     index_key.SetFromInteger(key);
     RID rid(key);
@@ -350,11 +348,37 @@ INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::RemoveFromFile(const std::string &file_name, Transaction *txn) {
   int64_t key;
   std::ifstream input(file_name);
-  while (input) {
-    input >> key;
+  while (input >> key) {
     KeyType index_key;
     index_key.SetFromInteger(key);
     Remove(index_key, txn);
+  }
+}
+
+/*
+ * This method is used for test only
+ * Read data from file and insert/remove one by one
+ */
+INDEX_TEMPLATE_ARGUMENTS
+void BPLUSTREE_TYPE::BatchOpsFromFile(const std::string &file_name, Transaction *txn) {
+  int64_t key;
+  char instruction;
+  std::ifstream input(file_name);
+  while (input) {
+    input >> instruction >> key;
+    RID rid(key);
+    KeyType index_key;
+    index_key.SetFromInteger(key);
+    switch (instruction) {
+      case 'i':
+        Insert(index_key, rid, txn);
+        break;
+      case 'd':
+        Remove(index_key, txn);
+        break;
+      default:
+        break;
+    }
   }
 }
 

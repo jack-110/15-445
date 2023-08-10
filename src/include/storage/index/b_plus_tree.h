@@ -117,6 +117,17 @@ class BPlusTree {
   // read data from file and remove one by one
   void RemoveFromFile(const std::string &file_name, Transaction *txn = nullptr);
 
+  /**
+   * @brief Read batch operations from input file, below is a sample file format
+   * insert some keys and delete 8, 9 from the tree with one step.
+   * { i1 i2 i3 i4 i5 i6 i7 i8 i9 i10 i30 d8 d9 } //  batch.txt
+   * B+ Tree(4 max leaf, 4 max internal) after processing:
+   *                            (5)
+   *                 (3)                (7)
+   *            (1,2)    (3,4)    (5,6)    (7,10,30) //  The output tree example
+   */
+  void BatchOpsFromFile(const std::string &file_name, Transaction *txn = nullptr);
+
  private:
   /* Debug Routines for FREE!! */
   void ToGraph(page_id_t page_id, const BPlusTreePage *page, std::ofstream &out);
@@ -159,6 +170,7 @@ class BPlusTree {
     BUSTUB_ENSURE(header_page->root_page_id_ == INVALID_PAGE_ID, "The tree should be empty when creaate tree.");
     page_id_t page_id;
     auto root_guard = bpm_->NewPageGuarded(&page_id);
+    left_page_id_ = page_id;
     auto root_page = root_guard.AsMut<LeafPage>();
     root_page->Init(leaf_max_size_);
     if (root_page->Insert(comparator_, key, value)) {
@@ -261,11 +273,12 @@ class BPlusTree {
   std::vector<std::string> log;  // NOLINT
   int leaf_max_size_;
   int internal_max_size_;
+  page_id_t left_page_id_;
   page_id_t header_page_id_;
 };
 
 /**
- * @brief for test only. PrintableBPlusTree is a printalbe B+ tree.
+ * @brief for test only. PrintableBPlusTree is a printable B+ tree.
  * We first convert B+ tree into a printable B+ tree and the print it.
  */
 struct PrintableBPlusTree {
