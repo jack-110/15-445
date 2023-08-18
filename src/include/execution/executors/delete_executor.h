@@ -56,6 +56,10 @@ class DeleteExecutor : public AbstractExecutor {
   auto GetOutputSchema() const -> const Schema & override { return plan_->OutputSchema(); };
 
  private:
+  bool first_{true};
+
+  const TableInfo *table_info_;
+
   /** The delete plan node to be executed */
   const DeletePlanNode *plan_;
 

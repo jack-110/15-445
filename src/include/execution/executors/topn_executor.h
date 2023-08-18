@@ -59,6 +59,7 @@ class TopNExecutor : public AbstractExecutor {
   auto GetNumInHeap() -> size_t;
 
  private:
+  std::vector<Tuple> sorted_tuples_;
   /** The TopN plan node to be executed */
   const TopNPlanNode *plan_;
   /** The child executor from which tuples are obtained */
