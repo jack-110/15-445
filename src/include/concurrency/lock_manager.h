@@ -363,6 +363,10 @@ class LockManager {
         lock_request_queue->upgrading_ = INVALID_TXN_ID;
         InsertOrDeleteTableLockSet(txn, upgrade_request, true);
 
+        if (lock_mode != LockMode::EXCLUSIVE) {
+          lock_request_queue->cv_.notify_all();
+        }
+
         return true;
       }
     }

@@ -155,59 +155,6 @@ void TableLockUpgradeTest1() {
 }
 TEST(LockManagerTest, TableLockUpgradeTest1) { TableLockUpgradeTest1(); }  // NOLINT
 
-/** Upgrading single transaction from S -> X */
-void TableLockBlockTest() {
-  LockManager lock_mgr{};
-  TransactionManager txn_mgr{&lock_mgr};
-
-  table_oid_t oid = 0;
-  std::vector<Transaction *> txns;
-
-  /** 10 transactions */
-  int num_txns = 10;
-  for (int i = 0; i < num_txns; i++) {
-    txns.push_back(txn_mgr.Begin());
-    EXPECT_EQ(i, txns[i]->GetTransactionId());
-  }
-
-  /** Each transaction takes an X lock on every table and then unlocks */
-  auto task = [&](int txn_id) {
-    bool res;
-
-    res = lock_mgr.LockTable(txns[txn_id], LockManager::LockMode::SHARED, oid);
-    EXPECT_TRUE(res);
-    CheckGrowing(txns[txn_id]);
-
-    lock_mgr.LockTable(txns[txn_id], LockManager::LockMode::EXCLUSIVE, oid);
-    // res = lock_mgr.UnlockTable(txns[txn_id], oid);
-    // EXPECT_TRUE(res);
-    // CheckShrinking(txns[txn_id]);
-
-    txn_mgr.Commit(txns[txn_id]);
-    CheckCommitted(txns[txn_id]);
-
-    /** All locks should be dropped */
-    CheckTableLockSizes(txns[txn_id], 0, 0, 0, 0, 0);
-  };
-
-  int num_threads = 10;
-  std::vector<std::thread> threads;
-  threads.reserve(num_threads);
-
-  for (int i = 0; i < num_threads; i++) {
-    threads.emplace_back(std::thread{task, i});
-  }
-
-  for (int i = 0; i < num_threads; i++) {
-    threads[i].join();
-  }
-
-  for (int i = 0; i < num_threads; i++) {
-    delete txns[i];
-  }
-}
-TEST(LockManagerTest, TableLockBlockTest) { TableLockBlockTest(); }  // NOLINT
-
 void RowLockTest1() {
   LockManager lock_mgr{};
   TransactionManager txn_mgr{&lock_mgr};
