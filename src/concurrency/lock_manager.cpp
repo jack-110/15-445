@@ -57,16 +57,8 @@ auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oi
 
       // upgrade
       auto upgrade_lock_request = std::make_shared<LockRequest>(txn->GetTransactionId(), lock_mode, oid);
+      lock_request_queue->request_queue_.push_front(upgrade_lock_request);
 
-      std::list<std::shared_ptr<LockRequest>>::iterator lr_iter;
-      for (lr_iter = lock_request_queue->request_queue_.begin(); lr_iter != lock_request_queue->request_queue_.end();
-           lr_iter++) {
-        if (!(*lr_iter)->granted_) {
-          break;
-        }
-      }
-
-      lock_request_queue->request_queue_.insert(lr_iter, upgrade_lock_request);
       lock_request_queue->upgrading_ = txn->GetTransactionId();
 
       std::unique_lock<std::mutex> lock(lock_request_queue->latch_, std::adopt_lock);

@@ -411,24 +411,18 @@ class LockManager {
 
   auto GrantLock(const std::shared_ptr<LockRequest> &lock_request,
                  const std::shared_ptr<LockRequestQueue> &lock_request_queue) -> bool {
-    LOG_INFO("Try to grant new locks for txn %u on table %u", lock_request->txn_id_, lock_request->oid_);
-    for (auto &lr : lock_request_queue->request_queue_) {
-      if (lr->granted_) {
-        if (!AreLocksCompatible(lr->lock_mode_, lock_request->lock_mode_)) {
-          LOG_INFO("Failed to grant new locks for txn %u on table %u for incompatible locks", lock_request->txn_id_,
-                   lock_request->oid_);
+    for (auto &request : lock_request_queue->request_queue_) {
+      if (request->granted_) {
+        if (!AreLocksCompatible(request->lock_mode_, lock_request->lock_mode_)) {
           return false;
         }
-      } else if (lock_request.get() != lr.get()) {
-        LOG_INFO("Failed to grant new locks for txn %u on table %u for lower priority", lock_request->txn_id_,
-                 lock_request->oid_);
-        return false;
-      } else {
-        LOG_INFO("Success to grant new locks for txn %u on table %u", lock_request->txn_id_, lock_request->oid_);
-        return true;
       }
     }
-    LOG_INFO("Success to grant new locks for txn %u on table %u", lock_request->txn_id_, lock_request->oid_);
+    for (auto &request : lock_request_queue->request_queue_) {
+      if (!request->granted_) {
+        return request->txn_id_ == lock_request->txn_id_;
+      }
+    }
     return false;
   }
 
