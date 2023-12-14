@@ -49,7 +49,9 @@ auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oi
   request->granted_ = true;
   InsertOrDeleteTableLockSet(txn, request, true);
   LOG_INFO("Success to acquire new %d lock on table %u for txn %u", lock_mode, oid, txn->GetTransactionId());
-  lock_request_queue->cv_.notify_all();
+  if (lock_mode != LockMode::EXCLUSIVE) {
+    lock_request_queue->cv_.notify_all();
+  }
   return true;
 }
 

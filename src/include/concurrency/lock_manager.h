@@ -347,14 +347,21 @@ class LockManager {
         }
 
         LOG_INFO("Upgrading %d lock on table %u for txn %u", lock_mode, oid, txn->GetTransactionId());
-        
+
         // drop the current lock, reserve the upgrade position
         InsertOrDeleteTableLockSet(txn, lock_request, false);
         lock_request_queue->request_queue_.remove(lock_request);
 
         // wait to get the new lock granted
+        std::list<std::shared_ptr<LockRequest>>::iterator lr_iter;
+        for (lr_iter = lock_request_queue->request_queue_.begin(); lr_iter != lock_request_queue->request_queue_.end();
+             lr_iter++) {
+          if (!(*lr_iter)->granted_) {
+            break;
+          }
+        }
         auto upgrade_request = std::make_shared<LockRequest>(txn->GetTransactionId(), lock_mode, oid);
-        lock_request_queue->request_queue_.push_front(upgrade_request);
+        lock_request_queue->request_queue_.insert(lr_iter, upgrade_request);
 
         lock_request_queue->upgrading_ = txn->GetTransactionId();
         while (!GrantLock(upgrade_request, lock_request_queue)) {
@@ -369,7 +376,7 @@ class LockManager {
           }
         }
 
-        //book keeping
+        // book keeping
         upgrade_request->granted_ = true;
         lock_request_queue->upgrading_ = INVALID_TXN_ID;
         InsertOrDeleteTableLockSet(txn, upgrade_request, true);
@@ -489,24 +496,24 @@ class LockManager {
   auto GrantLock(const std::shared_ptr<LockRequest> &lock_request,
                  const std::shared_ptr<LockRequestQueue> &lock_request_queue) -> bool {
     LOG_INFO("Try to grant new locks for txn %u on table %u", lock_request->txn_id_, lock_request->oid_);
-    for (auto &queue_request : lock_request_queue->request_queue_) {
-      if (queue_request->granted_) {
-        if (!AreLocksCompatible(queue_request->lock_mode_, lock_request->lock_mode_)) {
+    for (auto &lr : lock_request_queue->request_queue_) {
+      if (lr->granted_) {
+        if (!AreLocksCompatible(lr->lock_mode_, lock_request->lock_mode_)) {
           LOG_INFO("Failed to grant new locks for txn %u on table %u for incompatible locks", lock_request->txn_id_,
                    lock_request->oid_);
           return false;
         }
-      }
-    }
-
-    for (auto &queue_request : lock_request_queue->request_queue_) {
-      // if it's the first ungranted lock request
-      if (!queue_request->granted_) {
-        return queue_request->txn_id_ == lock_request->txn_id_;
+      } else if (lock_request.get() != lr.get()) {
+        LOG_INFO("Failed to grant new locks for txn %u on table %u for lower priority", lock_request->txn_id_,
+                 lock_request->oid_);
+        return false;
+      } else {
+        LOG_INFO("Success to grant new locks for txn %u on table %u", lock_request->txn_id_, lock_request->oid_);
+        return true;
       }
     }
     LOG_INFO("Success to grant new locks for txn %u on table %u", lock_request->txn_id_, lock_request->oid_);
-    return true;
+    return false;
   }
 
   void InsertOrDeleteTableLockSet(Transaction *txn, const std::shared_ptr<LockRequest> &lock_request, bool insert) {
