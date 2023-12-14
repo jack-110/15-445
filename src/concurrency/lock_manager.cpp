@@ -13,6 +13,7 @@
 #include "concurrency/lock_manager.h"
 
 #include "common/config.h"
+#include "common/logger.h"
 #include "concurrency/transaction.h"
 #include "concurrency/transaction_manager.h"
 
@@ -27,6 +28,7 @@ auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oi
     return true;
   }
 
+  LOG_INFO("Acquire new %d lock on table %u for txn %u", lock_mode, oid, txn->GetTransactionId());
   auto lock_request_queue = GetTableLockRequestQueue(oid);
 
   std::unique_lock<std::mutex> lock(lock_request_queue->latch_);
@@ -34,9 +36,10 @@ auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oi
   lock_request_queue->request_queue_.push_back(request);
 
   while (!GrantLock(request, lock_request_queue)) {
+    LOG_INFO("Blocking %d lock on table %u for txn %u", lock_mode, oid, txn->GetTransactionId());
     lock_request_queue->cv_.wait(lock);
     if (txn->GetState() == TransactionState::ABORTED) {
-      lock_request_queue->upgrading_ = INVALID_TXN_ID;
+      LOG_INFO("Abort %d lock on table %u for txn %u", lock_mode, oid, txn->GetTransactionId());
       lock_request_queue->request_queue_.remove(request);
       lock_request_queue->cv_.notify_all();
       return false;
@@ -45,16 +48,21 @@ auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oi
 
   request->granted_ = true;
   InsertOrDeleteTableLockSet(txn, request, true);
+  LOG_INFO("Success to acquire new %d lock on table %u for txn %u", lock_mode, oid, txn->GetTransactionId());
+  lock_request_queue->cv_.notify_all();
   return true;
 }
 
 auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool {
+  LOG_INFO("Try to unlock table %u for txn %u", oid, txn->GetTransactionId());
   auto lock_request_queue = GetTableLockRequestQueue(oid);
   std::lock_guard<std::mutex> lock(lock_request_queue->latch_);
   for (const auto &request : lock_request_queue->request_queue_) {
     if (request->txn_id_ == txn->GetTransactionId()) {
       // unlock no lock
       if (!request->granted_) {
+        LOG_INFO("unlock %d lock on table %u for txn %u failed for no granted lock", request->lock_mode_, oid,
+                 txn->GetTransactionId());
         txn->SetState(TransactionState::ABORTED);
         throw bustub::TransactionAbortException(txn->GetTransactionId(),
                                                 AbortReason::ATTEMPTED_UNLOCK_BUT_NO_LOCK_HELD);
@@ -63,12 +71,16 @@ auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool 
       table_lock_map_latch_.lock();
       if (txn->GetExclusiveRowLockSet()->find(oid) != txn->GetExclusiveRowLockSet()->end() ||
           txn->GetSharedRowLockSet()->find(oid) != txn->GetSharedRowLockSet()->end()) {
+        LOG_INFO("unlock %d lock on table %u for txn %u failed for row locks", request->lock_mode_, oid,
+                 txn->GetTransactionId());
         table_lock_map_latch_.unlock();
         txn->SetState(TransactionState::ABORTED);
         throw bustub::TransactionAbortException(txn->GetTransactionId(),
                                                 AbortReason::TABLE_UNLOCKED_BEFORE_UNLOCKING_ROWS);
       }
       table_lock_map_latch_.unlock();
+
+      LOG_INFO("unlock %d lock on table %u for txn %u", request->lock_mode_, oid, txn->GetTransactionId());
 
       // update transaction state
       if (txn->GetIsolationLevel() == IsolationLevel::REPEATABLE_READ) {

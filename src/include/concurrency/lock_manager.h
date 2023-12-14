@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/logger.h"
 #include "common/macros.h"
 #include "common/rid.h"
 #include "concurrency/transaction.h"
@@ -327,19 +328,26 @@ class LockManager {
       if (txn->GetTransactionId() == lock_request->txn_id_) {
         // check the precondition of upgrade
         if (lock_mode == lock_request->lock_mode_) {
+          LOG_INFO("The upgrading %d lock on table %u for txn %u is the same", lock_mode, oid, txn->GetTransactionId());
           return true;
         }
 
         if (lock_request_queue->upgrading_ != INVALID_TXN_ID) {
+          LOG_INFO("The upgrading %d lock on table %u for txn %u failed for multiple upgrading txns", lock_mode, oid,
+                   txn->GetTransactionId());
           txn->SetState(TransactionState::ABORTED);
           throw TransactionAbortException(txn->GetTransactionId(), AbortReason::UPGRADE_CONFLICT);
         }
 
         if (!CanLockUpgrade(lock_request->lock_mode_, lock_mode)) {
+          LOG_INFO("The upgrading %d lock on table %u for txn %u failed for incompitalbe upgrade", lock_mode, oid,
+                   txn->GetTransactionId());
           txn->SetState(TransactionState::ABORTED);
           throw TransactionAbortException(txn->GetTransactionId(), AbortReason::UPGRADE_CONFLICT);
         }
 
+        LOG_INFO("Upgrading %d lock on table %u for txn %u", lock_mode, oid, txn->GetTransactionId());
+        
         // drop the current lock, reserve the upgrade position
         InsertOrDeleteTableLockSet(txn, lock_request, false);
         lock_request_queue->request_queue_.remove(lock_request);
@@ -350,8 +358,10 @@ class LockManager {
 
         lock_request_queue->upgrading_ = txn->GetTransactionId();
         while (!GrantLock(upgrade_request, lock_request_queue)) {
+          LOG_INFO("Blocking %d lock on table %u for txn %u", lock_mode, oid, txn->GetTransactionId());
           lock_request_queue->cv_.wait(lock);
           if (txn->GetState() == TransactionState::ABORTED) {
+            LOG_INFO("Abort %d lock on table %u for txn %u", lock_mode, oid, txn->GetTransactionId());
             lock_request_queue->upgrading_ = INVALID_TXN_ID;
             lock_request_queue->request_queue_.remove(upgrade_request);
             lock_request_queue->cv_.notify_all();
@@ -359,9 +369,12 @@ class LockManager {
           }
         }
 
+        //book keeping
         upgrade_request->granted_ = true;
         lock_request_queue->upgrading_ = INVALID_TXN_ID;
         InsertOrDeleteTableLockSet(txn, upgrade_request, true);
+
+        LOG_INFO("Success to upgrade %d lock on table %u for txn %u", lock_mode, oid, txn->GetTransactionId());
 
         if (lock_mode != LockMode::EXCLUSIVE) {
           lock_request_queue->cv_.notify_all();
@@ -475,9 +488,12 @@ class LockManager {
 
   auto GrantLock(const std::shared_ptr<LockRequest> &lock_request,
                  const std::shared_ptr<LockRequestQueue> &lock_request_queue) -> bool {
+    LOG_INFO("Try to grant new locks for txn %u on table %u", lock_request->txn_id_, lock_request->oid_);
     for (auto &queue_request : lock_request_queue->request_queue_) {
       if (queue_request->granted_) {
         if (!AreLocksCompatible(queue_request->lock_mode_, lock_request->lock_mode_)) {
+          LOG_INFO("Failed to grant new locks for txn %u on table %u for incompatible locks", lock_request->txn_id_,
+                   lock_request->oid_);
           return false;
         }
       }
@@ -489,7 +505,8 @@ class LockManager {
         return queue_request->txn_id_ == lock_request->txn_id_;
       }
     }
-    return false;
+    LOG_INFO("Success to grant new locks for txn %u on table %u", lock_request->txn_id_, lock_request->oid_);
+    return true;
   }
 
   void InsertOrDeleteTableLockSet(Transaction *txn, const std::shared_ptr<LockRequest> &lock_request, bool insert) {

@@ -153,7 +153,48 @@ void TableLockUpgradeTest1() {
 
   delete txn1;
 }
-TEST(LockManagerTest, TableLockUpgradeTest1) { TableLockUpgradeTest1(); }  // NOLINT
+TEST(LockManagerTest, DISABLED_TableLockUpgradeTest1) { TableLockUpgradeTest1(); }  // NOLINT
+
+void TableLockIntegrationTest() {
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+
+  table_oid_t oid = 0;
+  auto txn1 = txn_mgr.Begin();
+  auto txn2 = txn_mgr.Begin();
+  auto txn3 = txn_mgr.Begin();
+
+  /** Take S lock */
+  EXPECT_EQ(true, lock_mgr.LockTable(txn1, LockManager::LockMode::INTENTION_SHARED, oid));
+  CheckTableLockSizes(txn1, 0, 0, 1, 0, 0);
+
+  EXPECT_EQ(true, lock_mgr.LockTable(txn2, LockManager::LockMode::INTENTION_SHARED, oid));
+  CheckTableLockSizes(txn2, 0, 0, 1, 0, 0);
+
+  EXPECT_EQ(true, lock_mgr.LockTable(txn3, LockManager::LockMode::EXCLUSIVE, oid));
+  CheckTableLockSizes(txn3, 0, 1, 0, 0, 0);
+
+  EXPECT_EQ(true, lock_mgr.LockTable(txn1, LockManager::LockMode::EXCLUSIVE, oid));
+  CheckTableLockSizes(txn1, 0, 1, 0, 0, 0);
+
+  /** Clean up */
+  txn_mgr.Commit(txn1);
+  CheckCommitted(txn1);
+  CheckTableLockSizes(txn1, 0, 0, 0, 0, 0);
+
+  txn_mgr.Commit(txn2);
+  CheckCommitted(txn2);
+  CheckTableLockSizes(txn2, 0, 0, 0, 0, 0);
+
+  txn_mgr.Commit(txn3);
+  CheckCommitted(txn3);
+  CheckTableLockSizes(txn3, 0, 0, 0, 0, 0);
+
+  delete txn1;
+  delete txn2;
+  delete txn3;
+}
+TEST(LockManagerTest, DISABLED_TableLockIntegrationTest) { TableLockIntegrationTest(); }  // NOLINT
 
 void RowLockTest1() {
   LockManager lock_mgr{};

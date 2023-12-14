@@ -18,6 +18,7 @@
 #include <unordered_set>
 
 #include "common/config.h"
+#include "common/logger.h"
 #include "concurrency/lock_manager.h"
 #include "concurrency/transaction.h"
 #include "recovery/log_manager.h"
@@ -46,6 +47,8 @@ class TransactionManager {
     if (txn == nullptr) {
       txn = new Transaction(next_txn_id_++, isolation_level);
     }
+
+    LOG_INFO("Txn %u begin", txn->GetTransactionId());
 
     if (enable_logging) {
       LogRecord record = LogRecord(txn->GetTransactionId(), txn->GetPrevLSN(), LogRecordType::BEGIN);

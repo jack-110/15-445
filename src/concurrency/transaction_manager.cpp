@@ -18,6 +18,7 @@
 #include <unordered_set>
 
 #include "catalog/catalog.h"
+#include "common/logger.h"
 #include "common/macros.h"
 #include "storage/table/table_heap.h"
 namespace bustub {
@@ -27,6 +28,7 @@ void TransactionManager::Commit(Transaction *txn) {
   ReleaseLocks(txn);
 
   txn->SetState(TransactionState::COMMITTED);
+  LOG_INFO("Txn %u committed", txn->GetTransactionId());
 }
 
 void TransactionManager::Abort(Transaction *txn) {
@@ -35,6 +37,7 @@ void TransactionManager::Abort(Transaction *txn) {
   ReleaseLocks(txn);
 
   txn->SetState(TransactionState::ABORTED);
+  LOG_INFO("Txn %u aborted", txn->GetTransactionId());
 }
 
 void TransactionManager::BlockAllTransactions() { UNIMPLEMENTED("block is not supported now!"); }
