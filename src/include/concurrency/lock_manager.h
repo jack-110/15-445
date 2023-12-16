@@ -340,6 +340,19 @@ class LockManager {
     return false;
   }
 
+  auto CanTxnUnLock(Transaction *txn, LockMode lock_mode) -> bool {
+    if (txn->GetState() == TransactionState::COMMITTED || txn->GetState() == TransactionState::ABORTED) {
+      return false;
+    }
+    switch (txn->GetIsolationLevel()) {
+      case IsolationLevel::REPEATABLE_READ:
+        return lock_mode == LockMode::SHARED || lock_mode == LockMode::EXCLUSIVE;
+      case IsolationLevel::READ_COMMITTED:
+      case IsolationLevel::READ_UNCOMMITTED:
+        return lock_mode == LockMode::EXCLUSIVE;
+    }
+  }
+
   auto CanTxnTakeLock(Transaction *txn, LockMode lock_mode) -> bool {
     if (txn->GetState() == TransactionState::COMMITTED || txn->GetState() == TransactionState::ABORTED) {
       return false;
@@ -376,19 +389,7 @@ class LockManager {
     return true;
   }
 
-  void GrantNewLocksIfPossible(LockRequestQueue *lock_request_queue) {
-    for (const auto &wait_grant : lock_request_queue->request_queue_) {
-      if (!wait_grant->granted_) {
-        for (const auto &request : lock_request_queue->request_queue_) {
-          if (request->granted_ && !AreLocksCompatible(request->lock_mode_, wait_grant->lock_mode_)) {
-            return;
-          }
-        }
-
-        wait_grant->granted_ = true;
-      }
-    }
-  }
+  void GrantNewLocksIfPossible(LockRequestQueue *lock_request_queue);
 
   auto CanLockUpgrade(LockMode curr_lock_mode, LockMode requested_lock_mode) -> bool {
     switch (curr_lock_mode) {
@@ -407,7 +408,23 @@ class LockManager {
     }
   }
 
-  auto CheckAppropriateLockOnTable(Transaction *txn, const table_oid_t &oid, LockMode row_lock_mode) -> bool;
+  auto CheckAppropriateLockOnTable(Transaction *txn, const table_oid_t &oid, LockMode row_lock_mode) -> bool {
+    switch (row_lock_mode) {
+      case LockMode::INTENTION_SHARED:
+      case LockMode::INTENTION_EXCLUSIVE:
+      case LockMode::SHARED_INTENTION_EXCLUSIVE:
+        txn->SetState(TransactionState::ABORTED);
+        throw TransactionAbortException(txn->GetTransactionId(), AbortReason::ATTEMPTED_INTENTION_LOCK_ON_ROW);
+      case LockMode::EXCLUSIVE:
+        if (!txn->IsTableExclusiveLocked(oid) && !txn->IsTableIntentionExclusiveLocked(oid) &&
+            !txn->IsTableSharedIntentionExclusiveLocked(oid)) {
+          txn->SetState(TransactionState::ABORTED);
+          throw TransactionAbortException(txn->GetTransactionId(), AbortReason::TABLE_LOCK_NOT_PRESENT);
+        }
+      default:
+        return true;
+    }
+  }
 
   auto GrantLock(const std::shared_ptr<LockRequest> &lock_request,
                  const std::shared_ptr<LockRequestQueue> &lock_request_queue) -> bool {
