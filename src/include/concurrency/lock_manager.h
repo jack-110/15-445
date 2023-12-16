@@ -466,6 +466,50 @@ class LockManager {
     }
   }
 
+  void InsertOrDeleteRowLockSet(Transaction *txn, const std::shared_ptr<LockRequest> &lock_request, bool insert) {
+    auto s_row_lock_set = txn->GetSharedRowLockSet();
+    auto x_row_lock_set = txn->GetExclusiveRowLockSet();
+    switch (lock_request->lock_mode_) {
+      case LockMode::SHARED:
+        if (insert) {
+          InsertRowLockSet(s_row_lock_set, lock_request->oid_, lock_request->rid_);
+        } else {
+          DeleteRowLockSet(s_row_lock_set, lock_request->oid_, lock_request->rid_);
+        }
+        break;
+      case LockMode::EXCLUSIVE:
+        if (insert) {
+          InsertRowLockSet(x_row_lock_set, lock_request->oid_, lock_request->rid_);
+        } else {
+          DeleteRowLockSet(x_row_lock_set, lock_request->oid_, lock_request->rid_);
+        }
+        break;
+      case LockMode::INTENTION_SHARED:
+      case LockMode::INTENTION_EXCLUSIVE:
+      case LockMode::SHARED_INTENTION_EXCLUSIVE:
+        break;
+    }
+  }
+
+  auto InsertRowLockSet(const std::shared_ptr<std::unordered_map<table_oid_t, std::unordered_set<RID>>> &lock_set,
+                        const table_oid_t &oid, const RID &rid) -> void {
+    auto row_lock_set = lock_set->find(oid);
+    if (row_lock_set == lock_set->end()) {
+      lock_set->emplace(oid, std::unordered_set<RID>{});
+      row_lock_set = lock_set->find(oid);
+    }
+    row_lock_set->second.emplace(rid);
+  }
+
+  auto DeleteRowLockSet(const std::shared_ptr<std::unordered_map<table_oid_t, std::unordered_set<RID>>> &lock_set,
+                        const table_oid_t &oid, const RID &rid) -> void {
+    auto row_lock_set = lock_set->find(oid);
+    if (row_lock_set == lock_set->end()) {
+      return;
+    }
+    row_lock_set->second.erase(rid);
+  }
+
   auto FindCycle(txn_id_t source_txn, std::vector<txn_id_t> &path, std::unordered_set<txn_id_t> &on_path,
                  std::unordered_set<txn_id_t> &visited, txn_id_t *abort_txn_id) -> bool;
   void UnlockAll();
