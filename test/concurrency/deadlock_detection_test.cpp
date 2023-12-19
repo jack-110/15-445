@@ -12,7 +12,7 @@
 #include "gtest/gtest.h"
 
 namespace bustub {
-TEST(LockManagerDeadlockDetectionTest, DISABLED_EdgeTest) {
+TEST(LockManagerDeadlockDetectionTest, EdgeTest) {
   LockManager lock_mgr{};
   TransactionManager txn_mgr{&lock_mgr};
   lock_mgr.txn_manager_ = &txn_mgr;
@@ -40,6 +40,8 @@ TEST(LockManagerDeadlockDetectionTest, DISABLED_EdgeTest) {
     auto t1 = txn_ids[i];
     auto t2 = txn_ids[i + 1];
     lock_mgr.AddEdge(t1, t2);
+    // If the edge already exists, you don't have to do anything.
+    lock_mgr.AddEdge(t1, t2);
     edges.emplace_back(t1, t2);
     EXPECT_EQ((i / 2) + 1, lock_mgr.GetEdgeList().size());
   }
@@ -51,12 +53,52 @@ TEST(LockManagerDeadlockDetectionTest, DISABLED_EdgeTest) {
   std::sort(lock_mgr_edges.begin(), lock_mgr_edges.end());
   std::sort(edges.begin(), edges.end());
 
+  // test if the edge is constrcuted correctly
   for (int i = 0; i < num_edges; i++) {
     EXPECT_EQ(edges[i], lock_mgr_edges[i]);
   }
+
+  // test remove edges
+  for (int i = 0; i < num_edges; i++) {
+    auto t1 = edges[i].first;
+    auto t2 = edges[i].second;
+    lock_mgr.RemoveEdge(t1, t2);
+    // If the edge already exists, you don't have to do anything.
+    lock_mgr.RemoveEdge(t1, t2);
+    EXPECT_EQ(num_edges - 1 - i, lock_mgr.GetEdgeList().size());
+  }
 }
 
-TEST(LockManagerDeadlockDetectionTest, DISABLED_BasicDeadlockDetectionTest) {
+TEST(LockManagerDeadlockDetectionTest, HasCycleTest) {
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+  lock_mgr.txn_manager_ = &txn_mgr;
+
+  const int num_nodes = 6;
+
+  // Create txn ids and shuffle
+  std::vector<txn_id_t> txn_ids;
+  txn_ids.reserve(num_nodes);
+  for (int i = 0; i < num_nodes; i++) {
+    txn_ids.push_back(i);
+  }
+  EXPECT_EQ(num_nodes, txn_ids.size());
+
+  // Create edges by pairing adjacent txn_ids
+  for (int i = 0; i < num_nodes - 1; i++) {
+    auto t1 = txn_ids[i];
+    auto t2 = txn_ids[i + 1];
+    lock_mgr.AddEdge(t1, t2);
+  }
+  lock_mgr.AddEdge(txn_ids[num_nodes - 1], txn_ids[0]);
+
+  txn_id_t txn_id;
+  EXPECT_TRUE(lock_mgr.HasCycle(&txn_id));
+  // store the transaction id of the youngest transaction in the cycle in txn_id
+  EXPECT_EQ(5, txn_id);
+}
+
+TEST(LockManagerDeadlockDetectionTest, BasicDeadlockDetectionTest) {
   LockManager lock_mgr{};
   TransactionManager txn_mgr{&lock_mgr};
   lock_mgr.txn_manager_ = &txn_mgr;

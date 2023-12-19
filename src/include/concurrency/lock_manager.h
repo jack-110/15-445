@@ -528,7 +528,78 @@ class LockManager {
   }
 
   auto FindCycle(txn_id_t source_txn, std::vector<txn_id_t> &path, std::unordered_set<txn_id_t> &on_path,
-                 std::unordered_set<txn_id_t> &visited, txn_id_t *abort_txn_id) -> bool;
+                 std::unordered_set<txn_id_t> &visited, txn_id_t *abort_txn_id) -> bool {
+    on_path.insert(source_txn);
+    visited.insert(source_txn);
+
+    for (auto &txn_id : path) {
+      if (on_path.find(txn_id) != on_path.end()) {
+        *abort_txn_id = FindYoungestTxn(on_path);
+        return true;
+      }
+      if (visited.find(txn_id) == visited.end()) {
+        if (FindCycle(txn_id, waits_for_[txn_id], on_path, visited, abort_txn_id)) {
+          return true;
+        }
+      }
+    }
+
+    on_path.erase(source_txn);
+    return false;
+  }
+
+  auto FindYoungestTxn(std::unordered_set<txn_id_t> &on_path) -> txn_id_t {
+    txn_id_t max_txn_id = 0;
+    for (auto &txn_id : on_path) {
+      if (max_txn_id < txn_id) {
+        max_txn_id = txn_id;
+      }
+    }
+    return max_txn_id;
+  }
+
+  void CreateWaitForGraph() {
+    for (const auto &table : table_lock_map_) {
+      std::vector<txn_id_t> granted;
+      table.second->latch_.lock();
+      for (const auto &request : table.second->request_queue_) {
+        if (request->granted_) {
+          granted.push_back(request->txn_id_);
+        }
+      }
+
+      for (const auto &request : table.second->request_queue_) {
+        if (!request->granted_) {
+          for (const auto &grant : granted) {
+            AddEdge(request->txn_id_, grant);
+          }
+        }
+      }
+
+      table.second->latch_.unlock();
+    }
+
+    for (const auto &row : row_lock_map_) {
+      std::vector<txn_id_t> granted;
+      row.second->latch_.lock();
+      for (const auto &request : row.second->request_queue_) {
+        if (request->granted_) {
+          granted.push_back(request->txn_id_);
+        }
+      }
+
+      for (const auto &request : row.second->request_queue_) {
+        if (!request->granted_) {
+          for (const auto &grant : granted) {
+            AddEdge(request->txn_id_, grant);
+          }
+        }
+      }
+
+      row.second->latch_.unlock();
+    }
+  }
+
   void UnlockAll();
 
   /** Structure that holds lock requests for a given table oid */

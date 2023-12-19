@@ -278,14 +278,57 @@ void LockManager::UnlockAll() {
   // You probably want to unlock all table and txn locks here.
 }
 
-void LockManager::AddEdge(txn_id_t t1, txn_id_t t2) {}
+void LockManager::AddEdge(txn_id_t t1, txn_id_t t2) {
+  std::lock_guard lock(waits_for_latch_);
+  if (waits_for_.find(t1) == waits_for_.end()) {
+    waits_for_[t1] = std::vector<txn_id_t>();
+  }
+  auto &t1_edges = waits_for_[t1];
+  // the edge does not exist
+  if (std::count(t1_edges.begin(), t1_edges.end(), t2) == 0) {
+    LOG_INFO("Add edge %d -> %d", t1, t2);
+    t1_edges.push_back(t2);
+  }
+}
 
-void LockManager::RemoveEdge(txn_id_t t1, txn_id_t t2) {}
+void LockManager::RemoveEdge(txn_id_t t1, txn_id_t t2) {
+  std::lock_guard lock(waits_for_latch_);
+  if (waits_for_.find(t1) != waits_for_.end()) {
+    auto &t1_edges = waits_for_[t1];
+    // the edge does not exist
+    auto edge = std::find(t1_edges.begin(), t1_edges.end(), t2);
+    if (edge != t1_edges.end()) {
+      LOG_INFO("Remove edge %d -> %d", t1, t2);
+      t1_edges.erase(edge);
+    }
+  }
+}
 
-auto LockManager::HasCycle(txn_id_t *txn_id) -> bool { return false; }
+// always explore the lowest transaction id first;
+// by starting the depth-first search from the node with lowest transaction id;
+// and exploring neighbors in order (by transaction id) when searching from a node.
+auto LockManager::HasCycle(txn_id_t *txn_id) -> bool {
+  std::vector<std::pair<txn_id_t, std::vector<txn_id_t>>> sorted_waits(waits_for_.begin(), waits_for_.end());
+  std::sort(sorted_waits.begin(), sorted_waits.end());
+  for (auto &key_value : sorted_waits) {
+    std::unordered_set<txn_id_t> on_path;
+    std::unordered_set<txn_id_t> visited;
+    // return the first cycle it finds.
+    if (FindCycle(key_value.first, key_value.second, on_path, visited, txn_id)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 auto LockManager::GetEdgeList() -> std::vector<std::pair<txn_id_t, txn_id_t>> {
+  std::lock_guard lock(waits_for_latch_);
   std::vector<std::pair<txn_id_t, txn_id_t>> edges(0);
+  for (auto &entry : waits_for_) {
+    for (auto waited_id : entry.second) {
+      edges.emplace_back(entry.first, waited_id);
+    }
+  }
   return edges;
 }
 
@@ -293,6 +336,31 @@ void LockManager::RunCycleDetection() {
   while (enable_cycle_detection_) {
     std::this_thread::sleep_for(cycle_detection_interval);
     {  // TODO(students): detect deadlock
+      {
+        table_lock_map_latch_.lock();
+        row_lock_map_latch_.lock();
+
+        CreateWaitForGraph();
+
+        txn_id_t abort_txn = INVALID_TXN_ID;
+        while (HasCycle(&abort_txn)) {
+          txn_manager_->GetTransaction(abort_txn)->SetState(TransactionState::ABORTED);
+          LOG_INFO("Dead lock: kill txn %d", abort_txn);
+          waits_for_[abort_txn].clear();
+        }
+
+        for (const auto &table : table_lock_map_) {
+          table.second->cv_.notify_all();
+        }
+        table_lock_map_latch_.unlock();
+
+        for (const auto &row : row_lock_map_) {
+          row.second->cv_.notify_all();
+        }
+        row_lock_map_latch_.unlock();
+
+        waits_for_.clear();
+      }
     }
   }
 }

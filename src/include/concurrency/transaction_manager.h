@@ -48,8 +48,6 @@ class TransactionManager {
       txn = new Transaction(next_txn_id_++, isolation_level);
     }
 
-    LOG_INFO("Txn %u begin", txn->GetTransactionId());
-
     if (enable_logging) {
       LogRecord record = LogRecord(txn->GetTransactionId(), txn->GetPrevLSN(), LogRecordType::BEGIN);
       lsn_t lsn = log_manager_->AppendLogRecord(&record);
