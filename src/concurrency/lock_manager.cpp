@@ -260,7 +260,8 @@ auto LockManager::UnlockRow(Transaction *txn, const table_oid_t &oid, const RID 
       lock_request_queue->cv_.notify_all();
       lock_request_queue->latch_.unlock();
 
-      if (CanTxnUnLock(txn, lock_request->lock_mode_)) {
+      // force unlock the tuple regardless of isolation level, not changing the transaction state
+      if (!force && CanTxnUnLock(txn, lock_request->lock_mode_)) {
         txn->SetState(TransactionState::SHRINKING);
       }
 
