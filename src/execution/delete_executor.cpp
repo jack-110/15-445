@@ -36,12 +36,21 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       table->UpdateTupleMeta(TupleMeta{INVALID_TXN_ID, INVALID_TXN_ID, true}, delete_rid);
       rows++;
 
+      // maintain table write set
+      auto table_write = TableWriteRecord(table_info_->oid_, delete_rid, table_info_->table_.get());
+      table_write.wtype_ = WType::DELETE;
+      exec_ctx_->GetTransaction()->AppendTableWriteRecord(table_write);
+
       auto catalog = exec_ctx_->GetCatalog();
       auto index_infos = catalog->GetTableIndexes(table_info_->name_);
       for (auto &index_info : index_infos) {
         auto delete_key =
             delete_tup.KeyFromTuple(table_info_->schema_, index_info->key_schema_, index_info->index_->GetKeyAttrs());
         index_info->index_->DeleteEntry(delete_key, delete_rid, exec_ctx_->GetTransaction());
+        // maintain index write set
+        auto index_write = IndexWriteRecord(delete_rid, table_info_->oid_, WType::DELETE, delete_key,
+                                            index_info->index_oid_, exec_ctx_->GetCatalog());
+        exec_ctx_->GetTransaction()->AppendIndexWriteRecord(index_write);
       }
     }
     Column col{"num", TypeId::INTEGER};
