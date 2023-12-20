@@ -21,15 +21,15 @@ SeqScanExecutor::SeqScanExecutor(ExecutorContext *exec_ctx, const SeqScanPlanNod
 void SeqScanExecutor::Init() {
   if (exec_ctx_->IsDelete()) {
     try {
-      LOG_INFO("SeqScan executor try to acquire X lock on table %d", plan_->table_oid_);
-      auto success = exec_ctx_->GetLockManager()->LockTable(exec_ctx_->GetTransaction(),
-                                                            LockManager::LockMode::EXCLUSIVE, plan_->table_oid_);
+      LOG_INFO("SeqScan executor try to acquire IX lock on table %d", plan_->table_oid_);
+      auto success = exec_ctx_->GetLockManager()->LockTable(
+          exec_ctx_->GetTransaction(), LockManager::LockMode::INTENTION_EXCLUSIVE, plan_->table_oid_);
       if (!success) {
-        throw new ExecutionException("SeqScan executor failed to acquire X lock on table " +
+        throw new ExecutionException("SeqScan executor failed to acquire IX lock on table " +
                                      std::to_string(plan_->table_oid_));
       }
     } catch (TransactionAbortException e) {
-      throw new ExecutionException("SeqScan executor failed to acquire X lock on talbe " +
+      throw new ExecutionException("SeqScan executor failed to acquire IX lock on talbe " +
                                    std::to_string(plan_->table_oid_) + e.GetInfo());
     }
   } else {
@@ -102,14 +102,14 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       if (!exec_ctx_->IsDelete() &&
           exec_ctx_->GetTransaction()->GetIsolationLevel() == IsolationLevel::READ_COMMITTED) {
         try {
-          LOG_INFO("SeqScan executor try to unlock S lock on row %s", rid->ToString().c_str());
+          LOG_INFO("SeqScan executor try to unlock S/X lock on row %s", rid->ToString().c_str());
           auto success =
               exec_ctx_->GetLockManager()->UnlockRow(exec_ctx_->GetTransaction(), plan_->table_oid_, *rid, false);
           if (!success) {
-            throw new ExecutionException("SeqScan executor failed to unlock S lock on row " + rid->ToString());
+            throw new ExecutionException("SeqScan executor failed to unlock S/X lock on row " + rid->ToString());
           }
         } catch (TransactionAbortException e) {
-          throw new ExecutionException("SeqScan executor failed to unlock S lock on row " + rid->ToString() +
+          throw new ExecutionException("SeqScan executor failed to unlock S/X lock on row " + rid->ToString() +
                                        e.GetInfo());
         }
       }
@@ -118,15 +118,15 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     // If the tuple should not be read by this transaction, force unlock the row
     if (exec_ctx_->IsDelete() || exec_ctx_->GetTransaction()->GetIsolationLevel() != IsolationLevel::READ_UNCOMMITTED) {
       try {
-        LOG_INFO("SeqScan executor try to force unlock S lock on row %s", itr_->GetRID().ToString().c_str());
+        LOG_INFO("SeqScan executor try to force unlock S/X lock on row %s", itr_->GetRID().ToString().c_str());
         auto success = exec_ctx_->GetLockManager()->UnlockRow(exec_ctx_->GetTransaction(), plan_->table_oid_,
                                                               itr_->GetRID(), true);
         if (!success) {
-          throw new ExecutionException("SeqScan executor failed to force unlock S lock on row " +
+          throw new ExecutionException("SeqScan executor failed to force unlock S/X lock on row " +
                                        itr_->GetRID().ToString());
         }
       } catch (TransactionAbortException e) {
-        throw new ExecutionException("SeqScan executor failed to force unlock S lock on row " +
+        throw new ExecutionException("SeqScan executor failed to force unlock S/X lock on row " +
                                      itr_->GetRID().ToString() + e.GetInfo());
       }
     }
@@ -135,14 +135,14 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   // unlock table for read operations under read committed level
   if (!exec_ctx_->IsDelete() && exec_ctx_->GetTransaction()->GetIsolationLevel() == IsolationLevel::READ_COMMITTED) {
     try {
-      LOG_INFO("SeqScan executor try to unlock IS lock on table %d", plan_->table_oid_);
+      LOG_INFO("SeqScan executor try to unlock IS/IX lock on table %d", plan_->table_oid_);
       auto success = exec_ctx_->GetLockManager()->UnlockTable(exec_ctx_->GetTransaction(), plan_->table_oid_);
       if (!success) {
-        throw new ExecutionException("SeqScan executor failed to unlock IS lock on table " +
+        throw new ExecutionException("SeqScan executor failed to unlock IS/IX lock on table " +
                                      std::to_string(plan_->table_oid_));
       }
     } catch (TransactionAbortException e) {
-      throw new ExecutionException("SeqScan executor failed to unlock IS lock on talbe " +
+      throw new ExecutionException("SeqScan executor failed to unlock IS/IX lock on talbe " +
                                    std::to_string(plan_->table_oid_) + e.GetInfo());
     }
   }
